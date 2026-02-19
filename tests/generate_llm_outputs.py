@@ -20,7 +20,7 @@ from state.agent_state import create_initial_state
 from nodes.reasoning_node import reasoning_node
 from nodes.action_node import action_node
 
-TEST_RESULTS_DIR = os.path.join(PROJECT_ROOT, "test_result")
+TEST_RESULTS_DIR = os.path.join(PROJECT_ROOT, "test_results")
 
 
 def run_case(case_name: str) -> dict:

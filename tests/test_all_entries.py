@@ -22,7 +22,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
 # 测试结果保存路径
-TEST_RESULTS_DIR = os.path.join(PROJECT_ROOT, "test_result")
+TEST_RESULTS_DIR = os.path.join(PROJECT_ROOT, "test_results")
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -398,31 +398,8 @@ def run_all_tests():
     passed = sum(1 for _, r in results if "[OK]" in r)
     print(f"\n总计: {passed}/{len(results)} 通过")
 
-    # 保存测试结果到文件
-    end_time = datetime.now()
-    test_report = {
-        "timestamp": timestamp,
-        "start_time": start_time.isoformat(),
-        "end_time": end_time.isoformat(),
-        "duration_seconds": (end_time - start_time).total_seconds(),
-        "summary": {
-            "total": len(results),
-            "passed": passed,
-            "failed": len(results) - passed
-        },
-        "results": all_outputs
-    }
-
-    # 确保目录存在
-    os.makedirs(TEST_RESULTS_DIR, exist_ok=True)
-
-    # 保存 JSON 格式结果
-    result_file = os.path.join(TEST_RESULTS_DIR, f"test_result_{timestamp}.json")
-    with open(result_file, "w", encoding="utf-8") as f:
-        json.dump(test_report, f, ensure_ascii=False, indent=2)
-    print(f"\n测试结果已保存到: {result_file}")
-
     # 保存模型产出（四个入口案例）
+    os.makedirs(TEST_RESULTS_DIR, exist_ok=True)
     llm_output_report = {
         "timestamp": timestamp,
         "cases": llm_outputs
