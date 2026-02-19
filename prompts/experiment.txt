@@ -16,7 +16,7 @@
 5. 实验结果要有讨论和反思空间
 
 ## 材料安全清单
-{ safety_constraints}
+{safety_constraints}
 
 ## 教室可行性要求
 - 材料必须是教室常见物品或廉价易得

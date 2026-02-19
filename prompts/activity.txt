@@ -25,7 +25,7 @@
 {context_summary}
 
 ## 安全约束
-{ safety_constraints}
+{safety_constraints}
 
 ## 输入信息
 - 驱动问题：{driving_question}
