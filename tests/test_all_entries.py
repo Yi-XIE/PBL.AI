@@ -11,12 +11,18 @@
 import os
 import sys
 import io
+import json
+from datetime import datetime
 
 # 设置标准输出编码为 UTF-8
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 # 添加项目根目录到路径
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, PROJECT_ROOT)
+
+# 测试结果保存路径
+TEST_RESULTS_DIR = os.path.join(PROJECT_ROOT, "test_result")
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -48,7 +54,8 @@ def test_1_topic_first():
         user_input=user_input,
         topic="AI如何识别交通标志",
         grade_level="初中",
-        duration=45
+        duration=45,
+        start_from="topic",
     )
 
     print(f"\n输入: {user_input}")
@@ -80,7 +87,15 @@ def test_1_topic_first():
     print(f"活动: {state['course_design']['activity'][:200]}...")
     print(f"实验: {state['course_design']['experiment'][:200]}...")
 
-    return True
+    return {
+        "entry": "topic",
+        "user_input": user_input,
+        "topic": state["topic"],
+        "grade_level": state["grade_level"],
+        "duration": state["duration"],
+        "context_summary": state.get("context_summary", ""),
+        "course_design": state.get("course_design", {}),
+    }
 
 
 def test_2_scenario_first():
@@ -113,12 +128,10 @@ def test_2_scenario_first():
         user_input="小学三年级，AI识别水果",
         topic="AI识别水果",
         grade_level="小学",
-        duration=40
+        duration=40,
+        start_from="scenario",
+        provided_components={"scenario": existing_scenario},
     )
-
-    # 预设场景
-    state['course_design']['scenario'] = existing_scenario
-    state['design_progress']['scenario'] = True
 
     print(f"\n已有场景: 智慧果园：AI帮你挑水果")
 
@@ -143,7 +156,16 @@ def test_2_scenario_first():
     print(f"问题链: {state['course_design']['question_chain']}")
     print(f"活动: {state['course_design']['activity'][:200]}...")
 
-    return True
+    return {
+        "entry": "scenario",
+        "user_input": state["user_input"],
+        "topic": state["topic"],
+        "grade_level": state["grade_level"],
+        "duration": state["duration"],
+        "context_summary": state.get("context_summary", ""),
+        "seed_scenario": existing_scenario,
+        "course_design": state.get("course_design", {}),
+    }
 
 
 def test_3_activity_first():
@@ -157,11 +179,20 @@ def test_3_activity_first():
     print("="*60)
 
     # 创建初始状态
+    existing_activity = """
+### 活动标题
+推荐算法辩论会
+
+### 活动流程
+学生分组，模拟平台与用户，讨论推荐算法的利弊，并形成辩论观点。
+"""
     state = create_initial_state(
         user_input="高中，讨论AI伦理问题，想让学生辩论推荐算法的利弊",
         topic="AI伦理与推荐算法",
         grade_level="高中",
-        duration=90
+        duration=90,
+        start_from="activity",
+        provided_components={"activity": existing_activity},
     )
 
     print(f"\n输入: 高中讨论AI伦理问题")
@@ -188,7 +219,15 @@ def test_3_activity_first():
     print(f"驱动问题: {state['course_design']['driving_question']}")
     print(f"活动（包含辩论环节）: {state['course_design']['activity'][:300]}...")
 
-    return True
+    return {
+        "entry": "activity",
+        "user_input": state["user_input"],
+        "topic": state["topic"],
+        "grade_level": state["grade_level"],
+        "duration": state["duration"],
+        "context_summary": state.get("context_summary", ""),
+        "course_design": state.get("course_design", {}),
+    }
 
 
 def test_4_experiment_first():
@@ -202,11 +241,20 @@ def test_4_experiment_first():
     print("="*60)
 
     # 创建初始状态
+    existing_experiment = """
+### 实验名称
+声音特征实验
+
+### 实验描述
+学生录制不同音色的声音，观察波形差异并尝试分类。
+"""
     state = create_initial_state(
         user_input="小学五年级，语音识别，想做声音实验",
         topic="语音识别",
         grade_level="小学",
-        duration=45
+        duration=45,
+        start_from="experiment",
+        provided_components={"experiment": existing_experiment},
     )
 
     print(f"\n输入: 小学五年级语音识别声音实验")
@@ -232,7 +280,15 @@ def test_4_experiment_first():
     print(f"场景: {state['course_design']['scenario'][:200]}...")
     print(f"实验设计: {state['course_design']['experiment'][:400]}...")
 
-    return True
+    return {
+        "entry": "experiment",
+        "user_input": state["user_input"],
+        "topic": state["topic"],
+        "grade_level": state["grade_level"],
+        "duration": state["duration"],
+        "context_summary": state.get("context_summary", ""),
+        "course_design": state.get("course_design", {}),
+    }
 
 
 def test_knowledge_base():
@@ -254,7 +310,7 @@ def test_knowledge_base():
     print(f"年级规则: {snippets['grade_rules'][:100]}...")
     print(f"主题模板: {snippets['topic_template'][:100]}...")
 
-    return True
+    return {"entry": "knowledge_base", "summary_only": True}
 
 
 def test_context_summary():
@@ -278,7 +334,11 @@ def test_context_summary():
     print(f"生成的上下文摘要:")
     print(summary)
 
-    return True
+    return {
+        "entry": "context_summary",
+        "summary_only": True,
+        "summary": summary,
+    }
 
 
 def run_all_tests():
@@ -296,18 +356,37 @@ def run_all_tests():
         ("测试4-实验优先", test_4_experiment_first),
     ]
 
+    # 记录测试开始时间
+    start_time = datetime.now()
+    timestamp = start_time.strftime("%Y%m%d_%H%M%S")
+
     results = []
+    all_outputs = []  # 收集所有测试的详细结果
+    llm_outputs = []  # 收集四个入口案例的模型产出
+
     for name, test_func in tests:
+        test_result = {
+            "name": name,
+            "status": "pending",
+            "error": None
+        }
         try:
-            test_func()
+            output = test_func()
             results.append((name, "[OK] 通过"))
+            test_result["status"] = "passed"
+            if isinstance(output, dict) and output.get("entry") in ("topic", "scenario", "activity", "experiment"):
+                llm_outputs.append(output)
             print(f"\n{name}: [OK] 通过")
         except Exception as e:
             results.append((name, f"[FAIL] 失败: {str(e)}"))
+            test_result["status"] = "failed"
+            test_result["error"] = str(e)
             print(f"\n{name}: [FAIL] 失败")
             print(f"错误: {str(e)}")
             import traceback
             traceback.print_exc()
+
+        all_outputs.append(test_result)
 
     # 总结
     print("\n" + "="*60)
@@ -318,6 +397,40 @@ def run_all_tests():
 
     passed = sum(1 for _, r in results if "[OK]" in r)
     print(f"\n总计: {passed}/{len(results)} 通过")
+
+    # 保存测试结果到文件
+    end_time = datetime.now()
+    test_report = {
+        "timestamp": timestamp,
+        "start_time": start_time.isoformat(),
+        "end_time": end_time.isoformat(),
+        "duration_seconds": (end_time - start_time).total_seconds(),
+        "summary": {
+            "total": len(results),
+            "passed": passed,
+            "failed": len(results) - passed
+        },
+        "results": all_outputs
+    }
+
+    # 确保目录存在
+    os.makedirs(TEST_RESULTS_DIR, exist_ok=True)
+
+    # 保存 JSON 格式结果
+    result_file = os.path.join(TEST_RESULTS_DIR, f"test_result_{timestamp}.json")
+    with open(result_file, "w", encoding="utf-8") as f:
+        json.dump(test_report, f, ensure_ascii=False, indent=2)
+    print(f"\n测试结果已保存到: {result_file}")
+
+    # 保存模型产出（四个入口案例）
+    llm_output_report = {
+        "timestamp": timestamp,
+        "cases": llm_outputs
+    }
+    llm_output_file = os.path.join(TEST_RESULTS_DIR, f"llm_outputs_{timestamp}.json")
+    with open(llm_output_file, "w", encoding="utf-8") as f:
+        json.dump(llm_output_report, f, ensure_ascii=False, indent=2)
+    print(f"\n模型产出已保存到: {llm_output_file}")
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@
 import json
 import os
 import re
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,7 +45,7 @@ def parse_user_input(user_input: str, state: AgentState) -> Dict[str, str]:
     # 否则从原始输入中提取
     topic = ""
     grade_level = "初中"  # 默认值
-    duration = 45  # 默认值
+    duration = 80  # 默认值（两节课 40+40）
 
     # 提取年级
     grade_patterns = [
@@ -65,6 +65,9 @@ def parse_user_input(user_input: str, state: AgentState) -> Dict[str, str]:
     duration_match = re.search(r"(\d+)\s*分钟", user_input)
     if duration_match:
         duration = int(duration_match.group(1))
+    # 两节课 40+40 或 2节课
+    if re.search(r"40\s*\+\s*40", user_input) or re.search(r"两节课|2节课|两节|2节", user_input):
+        duration = 80
 
     # 提取主题（更复杂的逻辑可以用 LLM）
     # 简单处理：移除年级和时长后的内容
@@ -150,6 +153,8 @@ def generate_context_summary(
     grade_level: str,
     duration: int,
     knowledge_snippets: KnowledgeSnippets,
+    anchor_type: str = "",
+    anchor_content: str = "",
     llm: ChatOpenAI = None,
 ) -> str:
     """
@@ -176,6 +181,7 @@ def generate_context_summary(
 3. 教学重点和注意事项
 4. 适合的类比或引入方式
 
+如果提供了“已有组件锚点”，请在摘要中体现与之对齐的教学取向或情境线索。
 请用2-3句话概括，每句话不超过30字。"""),
         ("user", """
 课程主题：{topic}
@@ -183,6 +189,8 @@ def generate_context_summary(
 课程时长：{duration}分钟
 年级规则：{grade_rules}
 主题模板：{topic_template}
+已有组件类型：{anchor_type}
+已有组件内容：{anchor_content}
 """)
     ])
 
@@ -193,50 +201,79 @@ def generate_context_summary(
         "duration": duration,
         "grade_rules": knowledge_snippets["grade_rules"],
         "topic_template": knowledge_snippets["topic_template"],
+        "anchor_type": anchor_type or "无",
+        "anchor_content": (anchor_content[:800] if anchor_content else "无"),
     })
 
     return result.content.strip()
 
 
-def plan_action_sequence(
-    state: AgentState,
-    feedback_target: str = None,
-) -> List[str]:
+def get_component_order() -> List[str]:
+    return ["scenario", "driving_question", "activity", "experiment"]
+
+
+def _start_index(start_from: str) -> int:
+    if start_from in ("topic", "scenario"):
+        return 0
+    if start_from == "activity":
+        return 2
+    if start_from == "experiment":
+        return 3
+    return 0
+
+
+def plan_action_sequence(state: AgentState) -> List[str]:
     """
-    规划动作序列
+    规划动作序列（基于组件）
 
     Args:
         state: 当前状态
-        feedback_target: 用户反馈的目标组件（如果有）
 
     Returns:
-        动作序列列表
+        动作序列列表（组件名）
     """
-    # 如果有用户反馈且指定了目标，只重新生成该组件
-    if feedback_target:
-        target_to_action = {
-            "scenario": ["generate_scenario"],
-            "driving_question": ["generate_driving_question"],
-            "question_chain": ["generate_driving_question"],
-            "activity": ["generate_activity"],
-            "experiment": ["generate_experiment"],
-        }
-        return target_to_action.get(feedback_target, ["generate_scenario"])
-
-    # 否则生成完整序列
     progress = state.get("design_progress", {})
+    validity = state.get("component_validity", {})
+    start_from = state.get("start_from", "topic")
 
-    actions = []
-    if not progress.get("scenario"):
-        actions.append("generate_scenario")
-    if not progress.get("driving_question"):
-        actions.append("generate_driving_question")
-    if not progress.get("activity"):
-        actions.append("generate_activity")
-    if not progress.get("experiment"):
-        actions.append("generate_experiment")
-
+    components = get_component_order()[_start_index(start_from):]
+    actions: List[str] = []
+    for comp in components:
+        if validity.get(comp) == "INVALID":
+            actions.append(comp)
+            continue
+        if not progress.get(comp, False):
+            actions.append(comp)
     return actions
+
+
+def merge_provided_components(state: AgentState) -> Tuple[Dict[str, Any], Dict[str, bool]]:
+    """
+    将用户提供的组件写入 course_design，并更新进度
+    """
+    provided = state.get("provided_components", {}) or {}
+    course_design = state.get("course_design", {})
+    progress = state.get("design_progress", {})
+    validity = state.get("component_validity", {})
+    locked = state.get("locked_components", [])
+
+    for key, value in provided.items():
+        if key in course_design and value:
+            course_design[key] = value
+            if key == "driving_question" and isinstance(value, dict):
+                course_design["driving_question"] = value.get("driving_question", "")
+                course_design["question_chain"] = value.get("question_chain", [])
+                progress["driving_question"] = bool(course_design["driving_question"])
+                progress["question_chain"] = bool(course_design["question_chain"])
+                validity["driving_question"] = "VALID" if progress["driving_question"] else "EMPTY"
+                validity["question_chain"] = "VALID" if progress["question_chain"] else "EMPTY"
+            else:
+                progress[key] = True
+                validity[key] = "VALID"
+            if key not in locked:
+                locked.append(key)
+
+    return course_design, progress
 
 
 def reasoning_node(state: AgentState) -> Dict[str, Any]:
@@ -263,16 +300,37 @@ def reasoning_node(state: AgentState) -> Dict[str, Any]:
     # 匹配知识片段
     knowledge_snippets = match_knowledge_snippets(topic, grade_level, knowledge_base)
 
+    # 合并用户提供的已有组件内容
+    course_design = state.get("course_design", {})
+    design_progress = state.get("design_progress", {})
+    component_validity = state.get("component_validity", {})
+    locked_components = state.get("locked_components", [])
+
+    course_design, design_progress = merge_provided_components(state)
+
+    # 收集已有组件作为锚点（支持任意起点）
+    anchor_type = ""
+    anchor_content = ""
+    if course_design.get("scenario"):
+        anchor_type = "场景"
+        anchor_content = course_design.get("scenario", "")
+    elif course_design.get("activity"):
+        anchor_type = "活动"
+        anchor_content = course_design.get("activity", "")
+    elif course_design.get("experiment"):
+        anchor_type = "实验"
+        anchor_content = course_design.get("experiment", "")
+    elif course_design.get("driving_question"):
+        anchor_type = "驱动问题"
+        anchor_content = course_design.get("driving_question", "")
+
     # 生成上下文摘要
     context_summary = generate_context_summary(
-        topic, grade_level, duration, knowledge_snippets
+        topic, grade_level, duration, knowledge_snippets, anchor_type, anchor_content
     )
 
-    # 检查用户反馈
-    feedback_target = state.get("feedback_target")
-
     # 规划动作序列
-    action_sequence = plan_action_sequence(state, feedback_target)
+    action_sequence = plan_action_sequence(state)
 
     # 生成推理过程
     thought = f"""
@@ -280,12 +338,19 @@ def reasoning_node(state: AgentState) -> Dict[str, Any]:
 - 主题：{topic}
 - 年级：{grade_level}
 - 时长：{duration}分钟
+ - 起点：{state.get('start_from', 'topic')}
 
 上下文摘要：
 {context_summary}
 
 需要生成的组件：{', '.join(action_sequence)}
 """
+
+    # 计算当前组件
+    if state.get("await_user") and state.get("pending_component"):
+        current_component = state.get("pending_component") or ""
+    else:
+        current_component = action_sequence[0] if action_sequence else ""
 
     return {
         "topic": topic,
@@ -295,6 +360,11 @@ def reasoning_node(state: AgentState) -> Dict[str, Any]:
         "knowledge_snippets": knowledge_snippets,
         "thought": thought,
         "action_sequence": action_sequence,
+        "action_inputs": state.get("action_inputs", []),
         "current_action_index": 0,
-        "feedback_target": None,  # 清除反馈目标
+        "course_design": course_design,
+        "design_progress": design_progress,
+        "component_validity": component_validity,
+        "locked_components": locked_components,
+        "current_component": current_component,
     }

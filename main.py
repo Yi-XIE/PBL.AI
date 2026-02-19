@@ -1,12 +1,9 @@
 """
-AI+PBL Agent MVP
-基于 LangGraph 的 PBL 课程自动生成系统
+AI+PBL Agent MVP - CLI
 
-使用方法：
-    python main.py "为初中二年级设计'AI如何识别交通标志'PBL课程，45分钟"
-
-或者：
-    python main.py --topic "图像识别" --grade "初中" --duration 45
+Usage:
+  python main.py "Design a PBL lesson on AI image recognition for grade 8, 45 minutes"
+  python main.py --topic "Image Recognition" --grade "初中" --duration 45
 """
 
 import argparse
@@ -15,65 +12,88 @@ import os
 import sys
 from datetime import datetime
 
-# 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from graph.workflow import run_workflow, print_course_design
+from graph.workflow import run_workflow_step, print_course_design
+from state.agent_state import create_initial_state, is_design_complete
 
 
 def parse_args():
-    """解析命令行参数"""
     parser = argparse.ArgumentParser(
-        description="AI+PBL Agent - 自动生成 PBL 课程方案"
+        description="AI+PBL Agent - Generate PBL course design"
     )
-
     parser.add_argument(
         "input",
         nargs="?",
-        help="用户输入的课程需求描述",
+        help="User input describing the course",
     )
-
     parser.add_argument(
         "--topic", "-t",
-        help="课程主题",
+        help="Course topic",
     )
-
     parser.add_argument(
         "--grade", "-g",
         choices=["小学", "初中", "高中"],
-        help="目标年级",
+        help="Target grade level",
     )
-
     parser.add_argument(
         "--duration", "-d",
         type=int,
-        default=45,
-        help="课程时长（分钟），默认 45",
+        default=80,
+        help="Duration in minutes (default 80)",
     )
-
+    parser.add_argument(
+        "--classroom-mode",
+        choices=["normal", "no_device", "computer_lab"],
+        default="normal",
+        help="Classroom mode: normal/no_device/computer_lab",
+    )
+    parser.add_argument(
+        "--classroom-context",
+        default="",
+        help="Classroom context description",
+    )
+    parser.add_argument(
+        "--start-from",
+        choices=["topic", "scenario", "activity", "experiment"],
+        default=None,
+        help="Start from: topic/scenario/activity/experiment",
+    )
+    parser.add_argument(
+        "--scenario-text",
+        help="Existing scenario text (required if start-from scenario)",
+    )
+    parser.add_argument(
+        "--activity-text",
+        help="Existing activity text (required if start-from activity)",
+    )
+    parser.add_argument(
+        "--experiment-text",
+        help="Existing experiment text (required if start-from experiment)",
+    )
+    parser.add_argument(
+        "--no-cascade",
+        action="store_true",
+        help="Do not cascade downstream on regeneration",
+    )
+    parser.add_argument(
+        "--no-hitl",
+        action="store_true",
+        help="Disable HITL (auto-accept all outputs)",
+    )
     parser.add_argument(
         "--output", "-o",
-        help="输出文件路径（JSON 格式）",
+        help="Output JSON file path",
     )
-
     parser.add_argument(
         "--quiet", "-q",
         action="store_true",
-        help="静默模式，只输出结果",
+        help="Quiet mode",
     )
-
     return parser.parse_args()
 
 
 def save_result(state: dict, output_path: str) -> None:
-    """
-    保存结果到 JSON 文件
-
-    Args:
-        state: 最终状态
-        output_path: 输出文件路径
-    """
-    # 准备输出数据
     output = {
         "metadata": {
             "generated_at": datetime.now().isoformat(),
@@ -83,62 +103,163 @@ def save_result(state: dict, output_path: str) -> None:
         },
         "course_design": state.get("course_design", {}),
     }
-
-    # 确保输出目录存在
     os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
-
-    # 写入文件
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
+    print(f"\n[OK] Result saved to: {output_path}")
 
-    print(f"\n📄 结果已保存到：{output_path}")
+
+def prompt_yes_no(message: str, default: bool = True) -> bool:
+    suffix = " [Y/n]" if default else " [y/N]"
+    while True:
+        resp = input(f"{message}{suffix} ").strip().lower()
+        if not resp:
+            return default
+        if resp in ("y", "yes"):
+            return True
+        if resp in ("n", "no"):
+            return False
+
+
+def prompt_text(message: str, required: bool = True) -> str:
+    while True:
+        resp = input(message).strip()
+        if resp or not required:
+            return resp
+
+
+def choose_start_from(args, interactive: bool) -> str:
+    if args.start_from:
+        return args.start_from
+    if not interactive:
+        return "topic"
+    print("\nChoose start point: 1) topic  2) scenario  3) activity  4) experiment (default 1)")
+    choice = input("Start point: ").strip()
+    mapping = {"1": "topic", "2": "scenario", "3": "activity", "4": "experiment"}
+    return mapping.get(choice, "topic")
+
+
+def collect_seed_components(start_from: str, args, interactive: bool) -> tuple[dict, str]:
+    seeds = {}
+    if args.scenario_text:
+        seeds["scenario"] = args.scenario_text
+    if args.activity_text:
+        seeds["activity"] = args.activity_text
+    if args.experiment_text:
+        seeds["experiment"] = args.experiment_text
+
+    if start_from in ("scenario", "activity", "experiment") and not seeds.get(start_from):
+        if not interactive:
+            raise ValueError(f"Start from {start_from} requires corresponding content.")
+        print(f"\nStart from {start_from} requires at least one sentence of existing content.")
+        while True:
+            content = prompt_text(f"Paste existing {start_from} content: ", required=False)
+            if content:
+                seeds[start_from] = content
+                break
+            fallback = prompt_yes_no("Fallback to full generation (topic)?", default=True)
+            if fallback:
+                start_from = "topic"
+                break
+    return seeds, start_from
+
+
+def render_preview(state: dict) -> None:
+    preview = state.get("pending_preview", {}) or {}
+    title = preview.get("title", "Preview")
+    print("\n" + "-" * 60)
+    print(title)
+    print("-" * 60)
+    text = preview.get("text", "")
+    if text:
+        print(text)
+    if "question_chain" in preview:
+        print("\nQuestion Chain:")
+        for i, q in enumerate(preview.get("question_chain", []), 1):
+            print(f"{i}. {q}")
+    print("-" * 60)
 
 
 def main():
-    """主函数"""
     args = parse_args()
 
-    # 构建用户输入
     if args.input:
         user_input = args.input
     elif args.topic:
         user_input = f"为{args.grade or '初中'}设计'{args.topic}'PBL课程，{args.duration}分钟"
     else:
-        # 交互模式
-        print("🎓 AI+PBL Agent - PBL 课程自动生成系统")
+        print("AI+PBL Agent - PBL Course Generator")
         print("-" * 50)
-        user_input = input("请输入课程需求（如：为初中二年级设计'AI图像识别'PBL课程，45分钟）：\n").strip()
-
+        user_input = input("Enter course request:\n").strip()
         if not user_input:
-            print("❌ 请提供课程需求描述")
+            print("Error: missing input")
             sys.exit(1)
 
     if not args.quiet:
-        print("\n🚀 开始生成 PBL 课程方案...")
-        print(f"📝 需求：{user_input}")
+        print("\nStarting generation...")
+        print(f"Request: {user_input}")
         print("-" * 60)
 
     try:
-        # 运行工作流
-        result = run_workflow(
+        interactive = sys.stdin.isatty()
+        start_from = choose_start_from(args, interactive)
+        seeds, start_from = collect_seed_components(start_from, args, interactive)
+
+        state = create_initial_state(
             user_input=user_input,
-            topic=args.topic,
-            grade_level=args.grade,
+            topic=args.topic or "",
+            grade_level=args.grade or "",
             duration=args.duration,
+            classroom_context=args.classroom_context,
+            classroom_mode=args.classroom_mode,
+            start_from=start_from,
+            provided_components=seeds,
+            hitl_enabled=not args.no_hitl,
+            cascade_default=not args.no_cascade,
+            interactive=interactive,
         )
 
-        # 打印结果
+        if args.no_hitl:
+            state = run_workflow_step(state)
+        else:
+            while True:
+                state = run_workflow_step(state)
+                if state.get("await_user") and state.get("pending_component"):
+                    render_preview(state)
+                    if prompt_yes_no("Accept this output?", default=True):
+                        state["user_decision"] = "accept"
+                        state["user_feedback"] = None
+                        state["feedback_target"] = None
+                    else:
+                        default_target = state.get("pending_component") or "scenario"
+                        target = prompt_text(
+                            f"Which component to edit? (scenario/driving_question/activity/experiment, default {default_target}): ",
+                            required=False,
+                        ).strip() or default_target
+                        feedback = prompt_text("Feedback: ", required=True)
+                        state["user_decision"] = "regenerate"
+                        state["feedback_target"] = target
+                        state["user_feedback"] = {target: feedback}
+                    continue
+
+                if is_design_complete(state):
+                    break
+
+                if not state.get("await_user"):
+                    # Safety: avoid infinite loop if no actions remain
+                    if not state.get("action_sequence"):
+                        break
+
         if not args.quiet:
-            print_course_design(result)
+            print_course_design(state)
 
-        # 保存到文件
         if args.output:
-            save_result(result, args.output)
+            save_result(state, args.output)
 
-        return result
+        return state
 
     except Exception as e:
-        print(f"\n❌ 生成失败：{str(e)}")
+        print(f"\nGeneration failed: {str(e)}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

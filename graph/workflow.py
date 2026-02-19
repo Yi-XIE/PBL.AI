@@ -11,8 +11,9 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from state.agent_state import AgentState, create_initial_state
+from nodes.start_point_node import start_point_node
 from nodes.reasoning_node import reasoning_node
-from nodes.action_node import action_node, should_continue
+from nodes.hitl_loop_node import hitl_loop_node
 
 
 def create_workflow() -> StateGraph:
@@ -32,25 +33,17 @@ def create_workflow() -> StateGraph:
     workflow = StateGraph(AgentState)
 
     # 添加节点
+    workflow.add_node("start_point", start_point_node)
     workflow.add_node("reasoning", reasoning_node)
-    workflow.add_node("action", action_node)
+    workflow.add_node("hitl_loop", hitl_loop_node)
 
     # 设置入口点
-    workflow.set_entry_point("reasoning")
+    workflow.set_entry_point("start_point")
 
     # 添加边
-    # reasoning -> action
-    workflow.add_edge("reasoning", "action")
-
-    # action -> 条件判断
-    workflow.add_conditional_edges(
-        "action",
-        should_continue,
-        {
-            "continue": "action",  # 继续执行下一个动作
-            "end": END,            # 所有动作完成，结束
-        }
-    )
+    workflow.add_edge("start_point", "reasoning")
+    workflow.add_edge("reasoning", "hitl_loop")
+    workflow.add_edge("hitl_loop", END)
 
     return workflow
 
@@ -71,6 +64,13 @@ def run_workflow(
     topic: str = None,
     grade_level: str = None,
     duration: int = None,
+    classroom_context: str = "",
+    classroom_mode: str = "normal",
+    start_from: str = "topic",
+    provided_components: dict = None,
+    hitl_enabled: bool = True,
+    cascade_default: bool = True,
+    interactive: bool = False,
 ) -> AgentState:
     """
     运行工作流生成 PBL 课程
@@ -89,14 +89,28 @@ def run_workflow(
         user_input=user_input,
         topic=topic or "",
         grade_level=grade_level or "",
-        duration=duration or 45,
+        duration=duration or 80,
+        classroom_context=classroom_context,
+        classroom_mode=classroom_mode,
+        start_from=start_from,
+        provided_components=provided_components or {},
+        hitl_enabled=hitl_enabled,
+        cascade_default=cascade_default,
+        interactive=interactive,
     )
 
-    # 编译并运行工作流
     app = compile_workflow()
     final_state = app.invoke(initial_state)
 
     return final_state
+
+
+def run_workflow_step(state: AgentState) -> AgentState:
+    """
+    运行一次工作流（适用于 HITL 分步）
+    """
+    app = compile_workflow()
+    return app.invoke(state)
 
 
 # 便捷函数：打印课程设计结果
