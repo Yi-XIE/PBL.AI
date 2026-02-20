@@ -97,6 +97,12 @@ textarea {
   align-items: center;
 }
 
+.panel-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .panel-title {
   font-size: 15px;
   font-weight: 600;
@@ -322,7 +328,6 @@ textarea {
 }
 
 .chat-input {
-  border-top: 1px solid var(--border);
   padding: 12px 16px 16px;
   display: flex;
   flex-direction: column;
@@ -337,7 +342,9 @@ textarea {
   padding: 8px;
   color: var(--text);
   font-size: 12px;
-  min-height: 70px;
+  min-height: 120px;
+  max-height: 260px;
+  overflow: auto;
 }
 
 .chat-actions {
@@ -369,9 +376,11 @@ textarea {
 }
 
 .markdown-view {
-  padding: 18px 20px 30px;
+  padding: 24px 80px 40px;
   line-height: 1.6;
   font-size: 14px;
+  max-width: 980px;
+  margin: 0 auto;
 }
 
 .markdown-view h1 {
@@ -402,6 +411,96 @@ textarea {
   border-radius: 4px;
 }
 
+.markdown-view table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+}
+
+.markdown-view th,
+.markdown-view td {
+  border: 1px solid var(--border);
+  padding: 8px;
+  text-align: left;
+}
+
+.markdown-view th {
+  background: #f0f3f8;
+}
+
+.markdown-edit {
+  padding: 24px 80px 40px;
+}
+
+.markdown-edit textarea {
+  width: 100%;
+  min-height: 260px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: white;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.question-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.question-item {
+  padding: 6px 8px;
+  background: #f6f8fc;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.question-tip {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.settings.compact .settings-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pending-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 6px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: #f6f8fc;
+}
+
+.pending-bar select {
+  background: white;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.status-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+
 @keyframes pulse {
   0%,
   80%,
@@ -423,6 +522,15 @@ textarea {
     cursor: row-resize;
   }
   .settings-grid {
+    grid-template-columns: 1fr;
+  }
+  .markdown-view {
+    padding: 18px 20px 30px;
+  }
+  .markdown-edit {
+    padding: 18px 20px 30px;
+  }
+  .settings.compact .settings-summary {
     grid-template-columns: 1fr;
   }
 }
