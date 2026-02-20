@@ -280,14 +280,19 @@ textarea {
   background: rgba(47, 128, 237, 0.08);
 }
 
-.chat-event.nav {
+.chat-event.explanation {
   border-left-color: var(--accent);
   background: rgba(47, 128, 237, 0.12);
 }
 
-.chat-event.await {
+.chat-event.action {
   border-left-color: var(--good);
   background: rgba(47, 158, 111, 0.08);
+}
+
+.chat-event.tool_status {
+  border-left-color: var(--info);
+  background: rgba(47, 128, 237, 0.06);
 }
 
 .chat-event.error {
@@ -356,7 +361,7 @@ textarea {
 .toggle-row {
   margin-top: 10px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 8px;
 }
 
@@ -630,6 +635,60 @@ textarea {
   margin-top: 10px;
   display: flex;
   gap: 8px;
+}
+
+.candidate-panel {
+  border: 1px solid var(--border);
+  background: #ffffff;
+  padding: 10px;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.candidate-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.candidate-item {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--border);
+  background: #f7f9fc;
+  border-radius: 10px;
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+}
+
+.candidate-item.active {
+  border-color: var(--accent);
+  background: rgba(47, 128, 237, 0.12);
+}
+
+.candidate-id {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.candidate-text {
+  color: var(--text);
+}
+
+.candidate-tip {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.tool-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 @keyframes pulse {

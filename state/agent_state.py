@@ -81,9 +81,12 @@ class AgentState(TypedDict):
     await_user: bool               # 是否等待用户确认
     pending_component: Optional[str]  # 待确认组件
     pending_preview: Dict[str, Any]   # 待确认预览内容
+    pending_candidates: List[Dict[str, Any]]  # 待确认候选方案
+    selected_candidate_id: Optional[str]  # 当前选中的候选方案 ID
     hitl_enabled: bool             # 是否启用 HITL
     cascade_default: bool          # 是否默认级联重生成
     interactive: bool              # 是否交互模式
+    multi_option: bool             # 是否启用多方案
 
 
 def create_initial_state(
@@ -98,6 +101,7 @@ def create_initial_state(
     hitl_enabled: bool = True,
     cascade_default: bool = True,
     interactive: bool = False,
+    multi_option: bool = False,
 ) -> AgentState:
     """
     创建初始状态
@@ -175,9 +179,12 @@ def create_initial_state(
         await_user=False,
         pending_component=None,
         pending_preview={},
+        pending_candidates=[],
+        selected_candidate_id=None,
         hitl_enabled=hitl_enabled,
         cascade_default=cascade_default,
         interactive=interactive,
+        multi_option=multi_option,
     )
 
 

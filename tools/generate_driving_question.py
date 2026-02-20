@@ -139,6 +139,43 @@ def generate_driving_question(
     }
 
 
+def generate_driving_question_candidates(
+    scenario: str,
+    grade_level: str,
+    context_summary: str,
+    user_feedback: str = "",
+    count: int = 2,
+    llm: ChatOpenAI = None,
+) -> List[Dict[str, Any]]:
+    """
+    生成多个驱动问题候选方案
+    """
+    if llm is None:
+        llm = get_llm()
+    candidates: List[Dict[str, Any]] = []
+    for index in range(count):
+        hint = f"请提供第{index + 1}个不同角度的驱动问题方案。"
+        feedback = f"{user_feedback}；{hint}" if user_feedback else hint
+        result = generate_driving_question(
+            scenario=scenario,
+            grade_level=grade_level,
+            context_summary=context_summary,
+            user_feedback=feedback,
+            llm=llm,
+        )
+        candidate_id = chr(65 + index)
+        candidates.append(
+            {
+                "id": candidate_id,
+                "title": result.get("driving_question", ""),
+                "driving_question": result.get("driving_question", ""),
+                "question_chain": result.get("question_chain", []),
+                "rationale": "",
+            }
+        )
+    return candidates
+
+
 # 工具元信息
 TOOL_INFO = {
     "name": "generate_driving_question",

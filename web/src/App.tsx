@@ -2,7 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { AgentState, SessionResponse, VirtualFile, VirtualFilesPayload } from "./types";
+import type {
+  AgentState,
+  Candidate,
+  Message,
+  SessionResponse,
+  Task,
+  VirtualFile,
+  VirtualFilesPayload,
+} from "./types";
 
 type Settings = {
   topic: string;
@@ -13,18 +21,8 @@ type Settings = {
   classroom_context: string;
   hitl_enabled: boolean;
   cascade_default: boolean;
+  multi_option: boolean;
   request: string;
-};
-
-type ChatEventKind = "status" | "nav" | "await" | "error";
-
-type ChatEvent = {
-  id: string;
-  ts: number;
-  kind: ChatEventKind;
-  message: string;
-  stage?: string;
-  progressText?: string;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -36,6 +34,7 @@ const DEFAULT_SETTINGS: Settings = {
   classroom_context: "",
   hitl_enabled: true,
   cascade_default: true,
+  multi_option: true,
   request: "",
 };
 
@@ -113,6 +112,14 @@ function buildProgressText(stage: string, startFrom?: string): string {
   return `${index + 1} / ${required.length}`;
 }
 
+function buildTaskProgress(task: Task | null, stage: string): string {
+  if (!task || !stage) return "";
+  const stages = task.stages || [];
+  const index = stages.indexOf(stage);
+  if (index < 0) return "";
+  return `${index + 1} / ${stages.length}`;
+}
+
 function deriveCurrentStage(state: AgentState | null): string {
   if (!state) return "";
   if (state.await_user && state.pending_component) {
@@ -126,43 +133,6 @@ function deriveCurrentStage(state: AgentState | null): string {
     }
   }
   return "";
-}
-
-function deriveNavigationHint(state: AgentState | null): { nextStage: string | null; reason: string } {
-  if (!state) {
-    return { nextStage: null, reason: "" };
-  }
-  if (isComplete(state)) {
-    return { nextStage: null, reason: "任务已完成" };
-  }
-  if (state.await_user && state.pending_component) {
-    return {
-      nextStage: state.pending_component,
-      reason: "当前阶段已生成，等待你确认或提出修改意见",
-    };
-  }
-  const nextStage = deriveCurrentStage(state);
-  if (!nextStage) {
-    return { nextStage: null, reason: "" };
-  }
-  return {
-    nextStage,
-    reason: "上一阶段已完成，该阶段尚未生成或确认",
-  };
-}
-
-function inferInitialStageFromText(text: string): string {
-  const raw = (text || "").toLowerCase();
-  if (raw.includes("experiment") || raw.includes("实验")) {
-    return "experiment";
-  }
-  if (raw.includes("activity") || raw.includes("活动")) {
-    return "activity";
-  }
-  if (raw.includes("scenario") || raw.includes("情境") || raw.includes("情景") || raw.includes("场景")) {
-    return "scenario";
-  }
-  return "scenario";
 }
 
 function isComplete(state: AgentState | null) {
@@ -225,19 +195,14 @@ export default function App() {
   const [displayMarkdown, setDisplayMarkdown] = useState("");
   const [feedbackMode, setFeedbackMode] = useState(false);
   const [showSettingsDetails, setShowSettingsDetails] = useState(false);
-  const [chatEvents, setChatEvents] = useState<ChatEvent[]>([]);
+  const [task, setTask] = useState<Task | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
 
   const lastPendingRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const editRef = useRef<HTMLTextAreaElement | null>(null);
   const streamedRef = useRef<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const lastStageRef = useRef<string | null>(null);
-  const lastAwaitRef = useRef(false);
-  const lastCompletedRef = useRef(false);
-  const lastErrorRef = useRef<string | null>(null);
-  const lastNavRef = useRef<string | null>(null);
-  const prevLoadingRef = useRef(false);
 
   const { courseDesignFile, courseSections } = useMemo(() => {
     const files = virtualFiles?.files || [];
@@ -333,33 +298,13 @@ export default function App() {
   useEffect(() => {
     if (!messagesEndRef.current) return;
     messagesEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [chatEvents]);
-
-  const pushEvent = (input: Omit<ChatEvent, "id" | "ts" | "progressText"> & { progressText?: string }) => {
-    const id =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    const progressText =
-      input.progressText ??
-      (input.stage ? buildProgressText(input.stage, state?.start_from || "topic") : "");
-    setChatEvents((prev) => {
-      const next = [
-        ...prev,
-        {
-          ...input,
-          id,
-          ts: Date.now(),
-          progressText: progressText || undefined,
-        },
-      ];
-      return next.length > 200 ? next.slice(-200) : next;
-    });
-  };
+  }, [messages]);
 
   const applySession = (payload: SessionResponse) => {
     setState(payload.state);
     setVirtualFiles(payload.virtual_files);
+    setTask(payload.task ?? null);
+    setMessages(payload.messages ?? []);
     if (payload.error) {
       setError(payload.error);
     } else {
@@ -394,25 +339,15 @@ export default function App() {
     setDisplayMarkdown("");
     setFeedbackMode(false);
     setShowSettingsDetails(false);
-    setChatEvents([]);
+    setTask(null);
+    setMessages([]);
     lastPendingRef.current = null;
     streamedRef.current.clear();
-    lastStageRef.current = null;
-    lastAwaitRef.current = false;
-    lastCompletedRef.current = false;
-    lastErrorRef.current = null;
-    lastNavRef.current = null;
-    prevLoadingRef.current = false;
   };
 
   const loadSession = async (id: string) => {
-    setChatEvents([]);
-    lastStageRef.current = null;
-    lastAwaitRef.current = false;
-    lastCompletedRef.current = false;
-    lastErrorRef.current = null;
-    lastNavRef.current = null;
-    prevLoadingRef.current = false;
+    setTask(null);
+    setMessages([]);
     try {
       const payload = await fetchJson<SessionResponse>(`/api/sessions/${id}`);
       setSessionId(payload.session_id);
@@ -423,6 +358,8 @@ export default function App() {
       setSessionId(null);
       setState(null);
       setVirtualFiles(null);
+      setTask(null);
+      setMessages([]);
       setError((err as Error).message);
     }
   };
@@ -434,13 +371,8 @@ export default function App() {
   }, []);
 
   const handleStart = async () => {
-    setChatEvents([]);
-    lastStageRef.current = null;
-    lastAwaitRef.current = false;
-    lastCompletedRef.current = false;
-    lastErrorRef.current = null;
-    lastNavRef.current = null;
-    prevLoadingRef.current = false;
+    setTask(null);
+    setMessages([]);
     setLoading(true);
     setError(null);
     try {
@@ -451,19 +383,6 @@ export default function App() {
           ? `${baseTopic}｜知识点：${knowledge}`
           : `知识点：${knowledge}`
         : baseTopic;
-      const inferredStage = inferInitialStageFromText(
-        `${setupForm.request.trim()} ${setupForm.topic.trim()}`
-      );
-      const inferredLabel = getStageLabel(inferredStage);
-      pushEvent({
-        kind: "status",
-        message: `正在开始课程设计任务：${mergedTopic || "未命名主题"}`,
-      });
-      pushEvent({
-        kind: "status",
-        stage: inferredStage,
-        message: `即将进入阶段：${inferredLabel}`,
-      });
       const payload = await fetchJson<SessionResponse>("/api/sessions", {
         method: "POST",
         body: JSON.stringify({
@@ -474,6 +393,7 @@ export default function App() {
           classroom_context: setupForm.classroom_context,
           hitl_enabled: setupForm.hitl_enabled,
           cascade_default: setupForm.cascade_default,
+          multi_option: setupForm.multi_option,
           user_input: setupForm.request.trim(),
         }),
       });
@@ -493,18 +413,6 @@ export default function App() {
     if (!sessionId) return;
     setLoading(true);
     setError(null);
-    if (action === "accept") {
-      pushEvent({
-        kind: "status",
-        message: "收到确认，正在推进到下一阶段…",
-      });
-    }
-    if (action === "reset") {
-      pushEvent({
-        kind: "status",
-        message: "已请求重置任务。",
-      });
-    }
     try {
       const payload = await fetchJson<SessionResponse>(`/api/sessions/${sessionId}/actions`, {
         method: "POST",
@@ -531,10 +439,6 @@ export default function App() {
     if (!feedbackText.trim()) return;
     setLoading(true);
     setError(null);
-    pushEvent({
-      kind: "status",
-      message: "收到修改意见，正在重新生成当前阶段内容…",
-    });
     try {
       const body: Record<string, unknown> = {
         action: "regenerate",
@@ -546,6 +450,43 @@ export default function App() {
       });
       setFeedbackText("");
       setFeedbackMode(false);
+      applySession(payload);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSelectCandidate = async (candidateId: string) => {
+    if (!sessionId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const payload = await fetchJson<SessionResponse>(`/api/sessions/${sessionId}/actions`, {
+        method: "POST",
+        body: JSON.stringify({ action: "select_candidate", candidate_id: candidateId }),
+      });
+      applySession(payload);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToolTrigger = async () => {
+    if (!sessionId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const payload = await fetchJson<SessionResponse>(`/api/sessions/${sessionId}/tools`, {
+        method: "POST",
+        body: JSON.stringify({
+          tool: "web_search",
+          query: settings.topic || setupForm.topic || "",
+        }),
+      });
       applySession(payload);
     } catch (err) {
       setError((err as Error).message);
@@ -594,11 +535,16 @@ export default function App() {
   };
 
   const awaitingUser = state?.await_user ?? false;
-  const activeStage = deriveCurrentStage(state);
+  const activeStage = task?.current_stage || deriveCurrentStage(state);
   const activeLabel = getStageLabel(activeStage);
-  const activeProgress = buildProgressText(activeStage, state?.start_from || "topic");
+  const activeProgress =
+    buildTaskProgress(task, activeStage) ||
+    buildProgressText(activeStage, state?.start_from || "topic");
   const stageSuffix = activeProgress ? `（${activeProgress}）` : "";
   const completed = isComplete(state);
+  const pendingCandidates: Candidate[] = state?.pending_candidates || [];
+  const selectedCandidateId = state?.selected_candidate_id || "";
+  const showCandidates = awaitingUser && pendingCandidates.length > 0;
 
   let statusHeadline = "准备就绪";
   let statusDetail = "请在上方填写设置并开始生成。";
@@ -626,75 +572,6 @@ export default function App() {
   const canStart =
     !loading &&
     (setupForm.topic.trim() || setupForm.knowledge_point.trim() || setupForm.request.trim());
-
-  useEffect(() => {
-    if (!sessionId && chatEvents.length === 0) return;
-    const prevLoading = prevLoadingRef.current;
-    prevLoadingRef.current = loading;
-    if (loading) return;
-
-    if (error && error !== lastErrorRef.current) {
-      pushEvent({
-        kind: "error",
-        message: `出错：${error}`,
-      });
-      lastErrorRef.current = error;
-      return;
-    }
-
-    if (error) {
-      return;
-    }
-
-    const stage = deriveCurrentStage(state);
-    if (stage && stage !== lastStageRef.current) {
-      pushEvent({
-        kind: "status",
-        stage,
-        message: `进入阶段：${getStageLabel(stage)}`,
-      });
-      lastStageRef.current = stage;
-    }
-
-    if (completed && !lastCompletedRef.current) {
-      pushEvent({
-        kind: "status",
-        message: "任务已完成，请在左侧查看课程总览。",
-      });
-      lastCompletedRef.current = true;
-    }
-    if (!completed && lastCompletedRef.current) {
-      lastCompletedRef.current = false;
-    }
-
-    if (awaitingUser && !lastAwaitRef.current) {
-      const label = stage ? getStageLabel(stage) : "当前阶段内容";
-      pushEvent({
-        kind: "await",
-        stage,
-        message: `我需要你的确认\n已生成：${label}\n请点击“接受”，或在下方输入修改意见并回车发送。`,
-      });
-      lastAwaitRef.current = true;
-    }
-    if (!awaitingUser && lastAwaitRef.current) {
-      lastAwaitRef.current = false;
-    }
-
-    if (prevLoading) {
-      const hint = deriveNavigationHint(state);
-      if (hint.nextStage) {
-        const signature = `${hint.nextStage}-${hint.reason}`;
-        if (signature !== lastNavRef.current) {
-          pushEvent({
-            kind: "nav",
-            stage: hint.nextStage,
-            message: `${hint.reason}\n下一步：${getStageLabel(hint.nextStage)}`,
-          });
-          lastNavRef.current = signature;
-        }
-      }
-    }
-  }, [loading, error, state, sessionId, awaitingUser, completed, chatEvents.length]);
 
   return (
     <div className="app-shell">
@@ -941,6 +818,16 @@ export default function App() {
                       />
                       启用级联
                     </label>
+                    <label className="toggle">
+                      <input
+                        type="checkbox"
+                        checked={setupForm.multi_option}
+                        onChange={(event) =>
+                          setSetupForm((prev) => ({ ...prev, multi_option: event.target.checked }))
+                        }
+                      />
+                      多方案
+                    </label>
                   </div>
                   <div className="settings-actions">
                     <button
@@ -959,7 +846,8 @@ export default function App() {
                     {MODE_LABELS[settings.classroom_mode] || settings.classroom_mode}｜主题{" "}
                     {settings.topic || "未指定"}｜知识点 {settings.knowledge_point || "未指定"}｜确认{" "}
                     {settings.hitl_enabled ? "开启" : "关闭"}｜级联{" "}
-                    {settings.cascade_default ? "开启" : "关闭"}
+                    {settings.cascade_default ? "开启" : "关闭"}｜多方案{" "}
+                    {settings.multi_option ? "开启" : "关闭"}
                   </div>
                   <button
                     className="button ghost tiny"
@@ -980,24 +868,44 @@ export default function App() {
                   <div>需求描述：{settings.request || "未指定"}</div>
                   <div>确认：{settings.hitl_enabled ? "开启" : "关闭"}</div>
                   <div>级联：{settings.cascade_default ? "开启" : "关闭"}</div>
+                  <div>多方案：{settings.multi_option ? "开启" : "关闭"}</div>
                 </div>
               )}
 
-              {(sessionId || chatEvents.length > 0) && (
+              {sessionId && (
                 <div className="chat-messages">
-                  {chatEvents.length === 0 ? (
+                  {messages.length === 0 ? (
                     <div className="empty">暂无消息</div>
                   ) : (
-                    chatEvents.map((event) => (
-                      <div key={event.id} className={`chat-event ${event.kind}`}>
+                    messages.map((event) => (
+                      <div key={event.id} className={`chat-event ${event.type}`}>
                         <div className="chat-event-text">{event.message}</div>
-                        {event.progressText && (
-                          <div className="chat-event-meta">阶段进度：{event.progressText}</div>
-                        )}
                       </div>
                     ))
                   )}
                   <div ref={messagesEndRef} />
+                </div>
+              )}
+
+              {showCandidates && (
+                <div className="candidate-panel">
+                  <div className="candidate-title">可选方案</div>
+                  {pendingCandidates.map((candidate) => (
+                    <button
+                      key={candidate.id}
+                      className={`candidate-item ${
+                        candidate.id === selectedCandidateId ? "active" : ""
+                      }`}
+                      onClick={() => handleSelectCandidate(candidate.id)}
+                      disabled={loading}
+                    >
+                      <span className="candidate-id">{candidate.id}</span>
+                      <span className="candidate-text">
+                        {candidate.title || candidate.driving_question || "（未命名方案）"}
+                      </span>
+                    </button>
+                  ))}
+                  <div className="candidate-tip">请选择一个方案，或在下方输入修改意见。</div>
                 </div>
               )}
 
@@ -1016,7 +924,7 @@ export default function App() {
                   <div className="status-text">{statusHeadline}</div>
                 )}
                 <div className="status-detail">{statusDetail}</div>
-                {awaitingUser && (
+                {awaitingUser && !showCandidates && (
                   <div className="status-actions">
                     <button className="button primary" onClick={() => handleAction("accept")} disabled={loading}>
                       接受
@@ -1033,10 +941,35 @@ export default function App() {
                     </button>
                   </div>
                 )}
+                {showCandidates && (
+                  <div className="status-actions">
+                    <button
+                      className="button"
+                      onClick={() => {
+                        setFeedbackMode(true);
+                        inputRef.current?.focus();
+                      }}
+                      disabled={loading}
+                    >
+                      修改
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="chat-input">
+              {sessionId && (
+                <div className="tool-actions">
+                  <button
+                    className="button ghost tiny"
+                    onClick={handleToolTrigger}
+                    disabled={loading}
+                  >
+                    联网查找资料
+                  </button>
+                </div>
+              )}
               <textarea
                 ref={inputRef}
                 rows={4}

@@ -248,6 +248,8 @@ def apply_file_update(
     state["await_user"] = False
     state["pending_component"] = None
     state["pending_preview"] = {}
+    state["pending_candidates"] = []
+    state["selected_candidate_id"] = None
     state["user_decision"] = None
     state["feedback_target"] = None
 

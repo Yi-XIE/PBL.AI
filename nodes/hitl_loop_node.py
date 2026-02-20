@@ -70,6 +70,23 @@ def _build_preview(component: str, course_design: Dict[str, Any]) -> Dict[str, A
     return {"title": "预览", "text": ""}
 
 
+def _apply_candidate_selection(
+    component: str,
+    candidate: Dict[str, Any],
+    course_design: Dict[str, Any],
+    design_progress: Dict[str, bool],
+    component_validity: Dict[str, str],
+) -> None:
+    if component != "driving_question":
+        return
+    course_design["driving_question"] = candidate.get("driving_question", "")
+    course_design["question_chain"] = candidate.get("question_chain", [])
+    design_progress["driving_question"] = True
+    design_progress["question_chain"] = True
+    component_validity["driving_question"] = "VALID"
+    component_validity["question_chain"] = "VALID"
+
+
 def hitl_loop_node(state: AgentState) -> Dict[str, Any]:
     hitl_enabled = state.get("hitl_enabled", True)
 
@@ -82,6 +99,8 @@ def hitl_loop_node(state: AgentState) -> Dict[str, Any]:
 
     pending_component = state.get("pending_component")
     pending_preview = dict(state.get("pending_preview", {}))
+    pending_candidates = list(state.get("pending_candidates", []))
+    selected_candidate_id = state.get("selected_candidate_id")
     await_user = state.get("await_user", False)
     user_decision = state.get("user_decision")
     feedback_target = state.get("feedback_target")
@@ -98,12 +117,27 @@ def hitl_loop_node(state: AgentState) -> Dict[str, Any]:
             "await_user": True,
             "pending_component": pending_component,
             "pending_preview": pending_preview,
+            "pending_candidates": pending_candidates,
+            "selected_candidate_id": selected_candidate_id,
         }
 
     # 如果有用户决策，先应用
     if hitl_enabled and await_user and user_decision:
         current = pending_component or state.get("current_component") or ""
-        if user_decision == "accept":
+        if user_decision in ("accept", "select_candidate"):
+            if pending_candidates and selected_candidate_id:
+                selected = next(
+                    (cand for cand in pending_candidates if cand.get("id") == selected_candidate_id),
+                    None,
+                )
+                if selected:
+                    _apply_candidate_selection(
+                        current,
+                        selected,
+                        course_design,
+                        design_progress,
+                        component_validity,
+                    )
             if current and current not in locked_components:
                 locked_components.append(current)
             component_validity[current] = "VALID"
@@ -124,6 +158,8 @@ def hitl_loop_node(state: AgentState) -> Dict[str, Any]:
         await_user = False
         pending_component = None
         pending_preview = {}
+        pending_candidates = []
+        selected_candidate_id = None
         user_decision = None
         feedback_target = None
 
@@ -147,6 +183,8 @@ def hitl_loop_node(state: AgentState) -> Dict[str, Any]:
             "await_user": False,
             "pending_component": None,
             "pending_preview": {},
+            "pending_candidates": [],
+            "selected_candidate_id": None,
             "user_decision": None,
             "feedback_target": None,
         }
@@ -172,6 +210,8 @@ def hitl_loop_node(state: AgentState) -> Dict[str, Any]:
         component_validity = gen_updates["component_validity"]
         observations = gen_updates["observations"]
         action_inputs = gen_updates["action_inputs"]
+        pending_candidates = gen_updates.get("pending_candidates", [])
+        selected_candidate_id = gen_updates.get("selected_candidate_id")
 
         pending_component = component
         pending_preview = _build_preview(component, course_design)
@@ -189,6 +229,8 @@ def hitl_loop_node(state: AgentState) -> Dict[str, Any]:
             "await_user": await_user,
             "pending_component": pending_component,
             "pending_preview": pending_preview,
+            "pending_candidates": pending_candidates,
+            "selected_candidate_id": selected_candidate_id,
             "user_decision": None,
             "feedback_target": None,
         }
@@ -236,6 +278,8 @@ def hitl_loop_node(state: AgentState) -> Dict[str, Any]:
         "await_user": False,
         "pending_component": None,
         "pending_preview": {},
+        "pending_candidates": [],
+        "selected_candidate_id": None,
         "user_decision": None,
         "feedback_target": None,
     }

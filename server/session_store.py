@@ -1,13 +1,24 @@
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 
 SESSIONS: Dict[str, Dict[str, Any]] = {}
 
 
-def create_session(config: Dict[str, Any], state: Dict[str, Any]) -> str:
+def create_session(
+    config: Dict[str, Any],
+    state: Dict[str, Any],
+    task: Optional[Dict[str, Any]] = None,
+    messages: Optional[List[Dict[str, Any]]] = None,
+) -> str:
     session_id = uuid4().hex
-    SESSIONS[session_id] = {"config": config, "state": state, "generation_count": 0}
+    SESSIONS[session_id] = {
+        "config": config,
+        "state": state,
+        "generation_count": 0,
+        "task": task,
+        "messages": messages or [],
+    }
     return session_id
 
 
@@ -23,6 +34,22 @@ def update_state(session_id: str, state: Dict[str, Any]) -> None:
 def update_config(session_id: str, config: Dict[str, Any]) -> None:
     if session_id in SESSIONS:
         SESSIONS[session_id]["config"] = config
+
+
+def update_task(session_id: str, task: Dict[str, Any]) -> None:
+    if session_id in SESSIONS:
+        SESSIONS[session_id]["task"] = task
+
+
+def set_messages(session_id: str, messages: List[Dict[str, Any]]) -> None:
+    if session_id in SESSIONS:
+        SESSIONS[session_id]["messages"] = messages
+
+
+def append_messages(session_id: str, messages: List[Dict[str, Any]]) -> None:
+    if session_id in SESSIONS:
+        current = SESSIONS[session_id].setdefault("messages", [])
+        current.extend(messages)
 
 
 def increment_generation(session_id: str) -> int:

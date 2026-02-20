@@ -11,6 +11,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from state.agent_state import AgentState
 from tools import get_tool
+from config import MULTI_OPTION_COUNT
+from tools.generate_driving_question import generate_driving_question_candidates
 
 
 def generate_component(
@@ -37,6 +39,8 @@ def generate_component(
     knowledge_snippets = state.get("knowledge_snippets", {})
 
     if component == "scenario":
+        state["pending_candidates"] = []
+        state["selected_candidate_id"] = None
         result = tool_func(
             topic=state["topic"],
             grade_level=state["grade_level"],
@@ -49,17 +53,35 @@ def generate_component(
         progress_update = {"scenario": True}
 
     elif component == "driving_question":
-        result = tool_func(
-            scenario=course_design.get("scenario", ""),
-            grade_level=state["grade_level"],
-            context_summary=state.get("context_summary", ""),
-            user_feedback=user_feedback,
-        )
-        course_design["driving_question"] = result.get("driving_question", "")
-        course_design["question_chain"] = result.get("question_chain", [])
+        if state.get("multi_option", True):
+            candidates = generate_driving_question_candidates(
+                scenario=course_design.get("scenario", ""),
+                grade_level=state["grade_level"],
+                context_summary=state.get("context_summary", ""),
+                user_feedback=user_feedback,
+                count=max(1, MULTI_OPTION_COUNT),
+            )
+            selected = candidates[0] if candidates else {}
+            course_design["driving_question"] = selected.get("driving_question", "")
+            course_design["question_chain"] = selected.get("question_chain", [])
+            state["pending_candidates"] = candidates
+            state["selected_candidate_id"] = selected.get("id")
+        else:
+            result = tool_func(
+                scenario=course_design.get("scenario", ""),
+                grade_level=state["grade_level"],
+                context_summary=state.get("context_summary", ""),
+                user_feedback=user_feedback,
+            )
+            course_design["driving_question"] = result.get("driving_question", "")
+            course_design["question_chain"] = result.get("question_chain", [])
+            state["pending_candidates"] = []
+            state["selected_candidate_id"] = None
         progress_update = {"driving_question": True, "question_chain": True}
 
     elif component == "activity":
+        state["pending_candidates"] = []
+        state["selected_candidate_id"] = None
         result = tool_func(
             driving_question=course_design.get("driving_question", ""),
             question_chain=course_design.get("question_chain", []),
@@ -73,6 +95,8 @@ def generate_component(
         progress_update = {"activity": True}
 
     elif component == "experiment":
+        state["pending_candidates"] = []
+        state["selected_candidate_id"] = None
         activity_summary = course_design.get("activity", "")[:500]
         result = tool_func(
             topic=state["topic"],
@@ -131,6 +155,8 @@ def generate_component(
         "component_validity": component_validity,
         "observations": observations,
         "action_inputs": action_inputs,
+        "pending_candidates": state.get("pending_candidates", []),
+        "selected_candidate_id": state.get("selected_candidate_id"),
     }
 
 
