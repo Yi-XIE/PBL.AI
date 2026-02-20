@@ -150,14 +150,13 @@ export default function App() {
   const editRef = useRef<HTMLTextAreaElement | null>(null);
   const streamedRef = useRef<Set<string>>(new Set());
 
-  const { courseDesignFile, courseSections, debugFiles } = useMemo(() => {
+  const { courseDesignFile, courseSections } = useMemo(() => {
     const files = virtualFiles?.files || [];
     const courseFiles = files.filter(
       (file) =>
         file.path.startsWith("course/") &&
         file.path !== "course/course_design.json"
     );
-    const debug = files.filter((file) => file.path.startsWith("debug/"));
     const courseDesign = courseFiles.find((file) => file.path === "course/course_design.md") || null;
     const orderMap = new Map(COMPONENT_ORDER.map((path, index) => [path, index]));
     const componentFiles = courseFiles.filter((file) => orderMap.has(file.path));
@@ -181,7 +180,6 @@ export default function App() {
         { key: "in_progress", title: "进行中", files: inProgress },
         { key: "not_started", title: "未开始", files: notStarted },
       ],
-      debugFiles: debug.sort((a, b) => a.path.localeCompare(b.path)),
     };
   }, [virtualFiles]);
 
@@ -535,21 +533,6 @@ export default function App() {
                   </div>
                 ))}
 
-              {virtualFiles && debugFiles.length > 0 && (
-                <div className="file-section">
-                  <div className="section-title">调试</div>
-                  {debugFiles.map((file) => (
-                    <button
-                      key={file.path}
-                      className={`file-item ${selectedPath === file.path ? "active" : ""}`}
-                      onClick={() => handleSelectFile(file.path)}
-                    >
-                      <span className="file-name">{file.path.split("/").pop()}</span>
-                      <span className="file-status">{STATUS_LABELS[file.status] || "信息"}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
         </Panel>

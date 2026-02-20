@@ -1,8 +1,8 @@
-# Design Doc 002: AI+PBL Agent 架构（Web UI + FastAPI）
+# Design Doc 002：AI+PBL Agent 架构（Web UI + FastAPI + LangGraph）
 
-**状态**: Implemented  
-**日期**: 2026-02-20  
-**作者**: AI+PBL Team
+**状态**：Implemented  
+**日期**：2026-02-20  
+**作者**：AI+PBL Team
 
 ---
 
@@ -10,137 +10,163 @@
 PBL（项目式学习）课程设计需要大量专业知识与结构化产出。本项目希望通过 Agent + HITL 机制，帮助教师快速生成并校验课程组件，同时提供可视化、可编辑的 Web UI，提升实际可用性与交付效率。
 
 目标：
-- 以 Web UI 为主入口，提供三栏（Explorer / Viewer / 状态与交互）体验
-- HITL 逐步确认，确保每个组件可控可追溯
-- 编辑上游内容时自动级联失效下游，保证一致性
-- 缺少 API Key 或 LLM 慢响应时，UI 有明确反馈
+- Web UI 作为主入口（资源管理器 / 预览与编辑 / 状态与交互）
+- HITL 逐步确认，组件可控可追溯
+- 编辑上游内容时自动级联失效下游
+- 缺少 API Key 或模型慢响应时前端有明确提示
 
 ---
 
 ## 2. 总体架构
 
 ```
-┌─────────────────────┐        ┌─────────────────────┐
-│  Web UI (React)     │  REST  │   FastAPI Server    │
-│  Explorer / Viewer  │ <----> │  Session + API       │
-│  Status / Actions   │        │  Virtual Files       │
-└─────────┬───────────┘        └─────────┬───────────┘
-          │                               │
-          │                               │
-          ▼                               ▼
-   Markdown Viewer                  LangGraph Workflow
-   (edit + save)                    (reasoning/action)
+┌──────────────────────────┐        ┌──────────────────────────┐
+│ Web UI (React + Vite)    │  REST  │ FastAPI Server           │
+│ Explorer / Preview/Edit  │ <----> │ Session + API            │
+│ Status / Feedback        │        │ Virtual Files Projection │
+└─────────────┬────────────┘        └─────────────┬────────────┘
+              │                                   │
+              ▼                                   ▼
+       Markdown Viewer                      LangGraph Workflow
+       (edit + save)                        (reasoning/action)
 ```
 
 ---
 
-## 3. 核心模块设计（已实现）
+## 3. 前端（React + Vite）
 
-### 3.1 Web 前端（React + Vite）
-- 三栏布局：左侧 Explorer，中间 Markdown Viewer，右侧状态与交互
-- Markdown 渲染：`react-markdown` + `remark-gfm`（支持表格）
-- Viewer 编辑模式：点击“编辑”进入编辑态，保存后回写后端
-- 一次性问答：右侧在开始前通过输入框完成设置（年级/时长/课堂模式/HITL/级联/主题/背景）
-- Pending 信息栏：输入框上方展示当前待确认组件
-- 右侧仅显示状态/提示与操作按钮（完成 / 反馈重生成）
+### 3.1 三栏布局
+- 左：资源管理器（中文命名 + 指定顺序）
+  - 课程总览固定置顶：`course_design.md`
+  - 其余组件顺序：情景 → 驱动问题 → 问题链 → 活动 → 实验
+  - 按“已完成 / 进行中 / 未开始”分区
+- 中：Markdown 预览与编辑
+  - 预览：`react-markdown` + `remark-gfm`（支持表格）
+  - 编辑：同页切换，样式接近预览
+  - 浏览按钮触发保存并回到预览
+  - 预览流式仅对每个文件首次打开生效（伪流式）
+- 右：状态与交互
+  - 会话设置表格 → 点击开始折叠为单行摘要
+  - 接受 / 拒绝（拒绝仅进入反馈输入）
+  - Enter 提交反馈并重生成（Shift+Enter 换行）
 
-### 3.2 FastAPI 服务
-- 提供 Session + Action + 文件回写 API：
-  - `POST /api/sessions`
-  - `GET /api/sessions/{session_id}`
-  - `POST /api/sessions/{session_id}/actions`
-  - `PUT /api/sessions/{session_id}/files`
-  - `GET /api/sessions/{session_id}/export`
-- 缺少 `DEEPSEEK_API_KEY` 时，返回清晰错误信息供前端展示
-- 生产环境：若存在 `web/dist`，直接挂载静态资源
-- 开发环境：启用 CORS 允许 `http://127.0.0.1:5173`
+### 3.2 会话设置
+字段：年级、时长、课堂模式、主题、知识点、课堂背景、需求描述、HITL、级联  
+- 知识点与主题在前端合并成 `topic` 发送
+- 需求描述作为 `user_input` 发送（可为空）
+- 会话开始后，设置区折叠为单行摘要
 
-### 3.3 Session & 状态机
-- Session 以内存字典存储（`session_id -> {config, state}`）
-- `AgentState` 维护：
-  - `course_design`、`design_progress`、`component_validity`
-  - `await_user`、`pending_component`、`pending_preview`
-  - `locked_components`、`observations` 等
-- HITL 机制：
-  - `pending_component` 生成后进入待确认状态
-  - 接收 `accept / regenerate` 决策后继续推进
+---
 
-### 3.4 虚拟文件模型
-- 课程组件映射为虚拟文件：
+## 4. 后端（FastAPI）
+
+### 4.1 API 设计
+- `POST /api/sessions`：创建会话并生成首个组件（若有输入）
+- `GET /api/sessions/{session_id}`：获取当前会话与虚拟文件投影
+- `POST /api/sessions/{session_id}/actions`：`accept | regenerate | reset`
+- `PUT /api/sessions/{session_id}/files`：保存编辑内容并级联失效下游
+- `GET /api/sessions/{session_id}/export`：导出课程 JSON
+
+### 4.2 Session 存储
+- 内存字典：`session_id -> {config, state}`
+- `config` 记录会话参数；`state` 记录工作流状态
+
+### 4.3 静态资源与 CORS
+- `web/dist` 存在时由 FastAPI 直接托管 SPA
+- 开发环境允许 `http://127.0.0.1:5173`
+
+### 4.4 API Key 保护
+- 缺少 `DEEPSEEK_API_KEY` 时返回可读错误，前端显示提示
+
+---
+
+## 5. LangGraph 工作流
+
+### 5.1 节点结构
+- `reasoning_node`
+  - 解析用户输入、加载知识库、生成上下文摘要
+  - 规划组件生成顺序（action_sequence）
+- `action_node`
+  - 调用 `generate_*` 工具生成组件
+  - 进入 HITL 等待确认
+
+### 5.2 HITL 循环
+- 生成组件 → 进入 `await_user`
+- `accept`：锁定组件并进入下一步
+- `regenerate`：根据反馈重生成（默认级联）
+
+---
+
+## 6. 核心状态模型（AgentState 关键字段）
+- 输入与设置：`user_input`, `topic`, `grade_level`, `duration`, `classroom_mode`, `classroom_context`
+- 工作流：`action_sequence`, `current_component`, `await_user`, `pending_component`
+- 课程设计：`course_design`
+- 进度与有效性：`design_progress`, `component_validity`, `locked_components`
+- 追踪：`observations`, `action_inputs`
+
+---
+
+## 7. 虚拟文件投影
+后端将 `AgentState` 投影为虚拟文件列表：
+- 课程组件：
   - `course/scenario.md`
   - `course/driving_question.md`
   - `course/question_chain.md`
   - `course/activity.md`
   - `course/experiment.md`
-  - `course/course_design.md`（整体结果预览）
-  - `course/course_design.json`（只读信息）
-- Debug 文件：
+  - `course/course_design.md`
+  - `course/course_design.json`（只读，当前 UI 隐藏）
+- 调试文件（当前 UI 不显示）：
   - `debug/context_summary.md`
   - `debug/observations.log`
   - `debug/action_inputs.json`
-- 状态规则（后端统一计算）：`pending / locked / invalid / valid / empty`
 
-### 3.5 自动起点路由
-- `determine_start_from` 自动路由：
-  1) 若提供 seed 组件，优先使用（scenario / activity / experiment）
-  2) 明确标记（如 `scenario:`、`activity:` 或中文“已有场景”）优先
-  3) LLM 路由器判断（JSON 输出 `start_from`）
-  4) 回退到 `topic`
-
-### 3.6 级联规则
-- 编辑/重生成上游组件会级联失效下游：
-  - `scenario` → `driving_question / question_chain / activity / experiment`
-  - `driving_question` → `question_chain / activity / experiment`
-  - `question_chain` → `activity / experiment`
-  - `activity` → `experiment`
-- 编辑回写会清空下游并标记 `INVALID`，确保一致性
-
-### 3.7 错误与加载
-- LLM 调用失败或无 API Key 时，响应中带 `error` 字段
-- 前端显示“思考中…”动画与错误提示，避免白屏
-
-### 3.8 静态资源与 CORS
-- `web/dist` 存在时由 FastAPI 直接托管 SPA
-- 本地开发使用 Vite + 代理，FastAPI 保留 CORS 兼容
+状态规则（后端统一计算）：`pending / locked / invalid / valid / empty`
 
 ---
 
-## 4. 数据流
-
-1) **创建会话**
-   - 前端提交用户输入与设置
-   - 后端创建 Session 并生成首个组件（如有输入）
-
-2) **HITL 操作**
-   - `accept`：确认当前组件并进入下一步
-   - `regenerate`：对目标组件反馈后重生成（默认级联）
-
-3) **编辑回写**
-   - Viewer 保存触发 `PUT /files`
-   - 后端更新 `course_design` 并级联失效下游
-
-4) **导出**
-   - `GET /export` 返回完整课程设计 JSON
+## 8. 级联规则
+上游组件变更（编辑或重生成）后下游失效：
+- `scenario` → `driving_question / question_chain / activity / experiment`
+- `driving_question` → `question_chain / activity / experiment`
+- `question_chain` → `activity / experiment`
+- `activity` → `experiment`
 
 ---
 
-## 5. 实现清单（对照）
-- [x] FastAPI 后端与核心 API 完成
-- [x] Web UI 三栏布局与中文文案
-- [x] Markdown Viewer（含表格渲染）与编辑回写
-- [x] HITL 接受/重生成流程
-- [x] 自动起点路由（显式规则 + LLM）
-- [x] 级联失效机制
-- [x] 错误提示与加载状态
-- [x] 静态资源托管与 CORS
+## 9. 自动起点路由
+`determine_start_from` 规则：
+1) 若提供 seed 组件，优先使用  
+2) 明确标记（如 `scenario:` 或中文提示）优先  
+3) LLM 路由器判断（JSON 输出 `start_from`）  
+4) 回退到 `topic`
 
 ---
 
-## 6. 关键文件
+## 10. 启动方式
+`main.py` 默认启动 Web UI：
+- `python main.py`：启动 FastAPI 并自动打开浏览器  
+- `python main.py --cli`：CLI 模式  
+- `python main.py --ui streamlit`：旧版 Streamlit（保留）
+
+---
+
+## 11. 错误与可用性
+- LLM 失败或无 API Key：返回 `error`，前端可见
+- 前端显示“思考中”动画
+
+---
+
+## 12. 关键文件
 - `server/app.py`
+- `server/models.py`
+- `server/session_store.py`
 - `server/state_ops.py`
 - `server/virtual_files.py`
-- `server/session_store.py`
+- `graph/workflow.py`
+- `nodes/reasoning_node.py`
+- `nodes/action_node.py`
+- `tools/generate_*.py`
 - `web/src/App.tsx`
 - `web/src/styles.css`
 - `main.py`
