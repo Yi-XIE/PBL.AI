@@ -97,6 +97,19 @@ textarea {
   align-items: center;
 }
 
+.editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: none;
+}
+
+.editor-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .panel-actions {
   display: flex;
   justify-content: flex-end;
@@ -137,6 +150,19 @@ textarea {
   margin-bottom: 16px;
 }
 
+.file-section {
+  margin-bottom: 16px;
+}
+
+.section-title {
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
 .group-title {
   font-size: 11px;
   text-transform: uppercase;
@@ -158,6 +184,20 @@ textarea {
   margin-bottom: 6px;
   cursor: pointer;
   transition: all 0.15s ease;
+}
+
+.file-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px rgba(47, 128, 237, 0.6);
 }
 
 .file-item:hover {
@@ -216,6 +256,21 @@ textarea {
   padding: 6px 8px;
   border-radius: 8px;
   font-size: 12px;
+}
+
+.settings textarea {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  min-height: 80px;
+  resize: vertical;
+}
+
+.full-span {
+  grid-column: 1 / -1;
 }
 
 .toggle-row {
@@ -352,6 +407,7 @@ textarea {
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
 }
 
 .chat-actions select {

@@ -6,33 +6,60 @@ import type { AgentState, SessionResponse, VirtualFile, VirtualFilesPayload } fr
 
 type Settings = {
   topic: string;
+  knowledge_point: string;
   grade_level: string;
   duration: number;
   classroom_mode: string;
   classroom_context: string;
   hitl_enabled: boolean;
   cascade_default: boolean;
+  request: string;
 };
 
 const DEFAULT_SETTINGS: Settings = {
   topic: "",
-  grade_level: "",
+  knowledge_point: "",
+  grade_level: "初中",
   duration: 80,
   classroom_mode: "normal",
   classroom_context: "",
   hitl_enabled: true,
   cascade_default: true,
+  request: "",
 };
 
 const COMPONENTS = ["scenario", "driving_question", "question_chain", "activity", "experiment"];
+
+const COMPONENT_LABELS: Record<string, string> = {
+  scenario: "情境",
+  driving_question: "驱动问题",
+  question_chain: "问题链",
+  activity: "活动",
+  experiment: "实验",
+};
+
+const MODE_LABELS: Record<string, string> = {
+  normal: "常规",
+  no_device: "无设备",
+  computer_lab: "机房",
+};
 
 const statusColor: Record<string, string> = {
   pending: "var(--accent)",
   locked: "var(--good)",
   invalid: "var(--danger)",
-  valid: "var(--info)",
+  valid: "var(--good)",
   empty: "var(--muted)",
   info: "var(--muted)",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  pending: "进行中",
+  locked: "已完成",
+  valid: "已完成",
+  invalid: "未开始",
+  empty: "未开始",
+  info: "信息",
 };
 
 function isComplete(state: AgentState | null) {
@@ -61,51 +88,6 @@ function buildMarkdown(file: VirtualFile | null) {
   return `\`\`\`${lang}\n${content}\n\`\`\``;
 }
 
-function parseSetupInput(
-  text: string,
-  defaults: Settings
-): { settings: Settings; userInput: string } {
-  const settings = { ...defaults };
-  const raw = text.trim();
-  if (!raw) {
-    return { settings, userInput: "" };
-  }
-  const normalized = raw.toLowerCase();
-
-  if (normalized.match(/小学|primary/)) settings.grade_level = "小学";
-  if (normalized.match(/初中|middle/)) settings.grade_level = "初中";
-  if (normalized.match(/高中|high/)) settings.grade_level = "高中";
-
-  const durationMatch = raw.match(/(\d+)\s*(分钟|min|mins)/);
-  if (durationMatch) settings.duration = Number(durationMatch[1]);
-
-  if (normalized.match(/no_device|无设备|无电子/)) settings.classroom_mode = "no_device";
-  if (normalized.match(/computer_lab|机房|计算机教室/)) settings.classroom_mode = "computer_lab";
-  if (normalized.match(/normal|常规|普通/)) settings.classroom_mode = "normal";
-
-  if (normalized.match(/hitl\s*=\s*off|不需要确认|自动接受/)) settings.hitl_enabled = false;
-  if (normalized.match(/hitl\s*=\s*on|需要确认|人工确认/)) settings.hitl_enabled = true;
-
-  if (normalized.match(/cascade\s*=\s*off|不级联|关闭级联/)) settings.cascade_default = false;
-  if (normalized.match(/cascade\s*=\s*on|开启级联|级联/)) settings.cascade_default = true;
-
-  const topicMatch = raw.match(/(?:topic|主题|话题)\s*[:=：]\s*([^\n;]+)/i);
-  if (topicMatch) settings.topic = topicMatch[1].trim();
-
-  const contextMatch = raw.match(/(?:课堂|情境|context)\s*[:=：]\s*([^\n;]+)/i);
-  if (contextMatch) settings.classroom_context = contextMatch[1].trim();
-
-  const requestMatch = raw.match(/(?:需求|描述|要求|request)\s*[:=：]\s*([\s\S]+)/i);
-  let userInput = requestMatch ? requestMatch[1].trim() : raw;
-  if (topicMatch && userInput === raw) {
-    userInput = raw.replace(topicMatch[0], "").trim();
-  }
-  if (!userInput && settings.topic) {
-    userInput = "";
-  }
-  return { settings, userInput };
-}
-
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -129,31 +111,49 @@ export default function App() {
     return localStorage.getItem("session_id");
   });
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [setupForm, setSetupForm] = useState<Settings>(DEFAULT_SETTINGS);
   const [state, setState] = useState<AgentState | null>(null);
   const [virtualFiles, setVirtualFiles] = useState<VirtualFilesPayload | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [inputText, setInputText] = useState("");
+  const [feedbackText, setFeedbackText] = useState("");
   const [regenTarget, setRegenTarget] = useState("pending");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
+  const [displayMarkdown, setDisplayMarkdown] = useState("");
+  const [feedbackMode, setFeedbackMode] = useState(false);
 
   const lastPendingRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const editRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const groupedFiles = useMemo(() => {
-    const groups: Record<string, VirtualFile[]> = {};
-    (virtualFiles?.files || []).forEach((file) => {
-      const root = file.path.split("/")[0] || "root";
-      if (!groups[root]) {
-        groups[root] = [];
-      }
-      groups[root].push(file);
-    });
-    Object.values(groups).forEach((group) => group.sort((a, b) => a.path.localeCompare(b.path)));
-    return groups;
+  const { courseDesignFile, courseSections, debugFiles } = useMemo(() => {
+    const files = virtualFiles?.files || [];
+    const courseFiles = files.filter((file) => file.path.startsWith("course/"));
+    const debug = files.filter((file) => file.path.startsWith("debug/"));
+    const courseDesign = courseFiles.find((file) => file.path === "course/course_design.md") || null;
+    const rest = courseFiles.filter((file) => file.path !== "course/course_design.md");
+
+    const completed = rest
+      .filter((file) => ["valid", "locked", "info"].includes(file.status))
+      .sort((a, b) => a.path.localeCompare(b.path));
+    const inProgress = rest
+      .filter((file) => file.status === "pending")
+      .sort((a, b) => a.path.localeCompare(b.path));
+    const notStarted = rest
+      .filter((file) => ["empty", "invalid"].includes(file.status))
+      .sort((a, b) => a.path.localeCompare(b.path));
+
+    return {
+      courseDesignFile: courseDesign,
+      courseSections: [
+        { key: "completed", title: "已完成", files: completed },
+        { key: "in_progress", title: "进行中", files: inProgress },
+        { key: "not_started", title: "未开始", files: notStarted },
+      ],
+      debugFiles: debug.sort((a, b) => a.path.localeCompare(b.path)),
+    };
   }, [virtualFiles]);
 
   const currentFile = useMemo(() => {
@@ -166,7 +166,7 @@ export default function App() {
     if (!inputRef.current) return;
     inputRef.current.style.height = "auto";
     inputRef.current.style.height = `${inputRef.current.scrollHeight}px`;
-  }, [inputText]);
+  }, [feedbackText]);
 
   useEffect(() => {
     if (!currentFile) return;
@@ -179,6 +179,34 @@ export default function App() {
     editRef.current.style.height = "auto";
     editRef.current.style.height = `${editRef.current.scrollHeight}px`;
   }, [editValue]);
+
+  useEffect(() => {
+    if (!currentFile || isEditing) {
+      setDisplayMarkdown(renderedMarkdown);
+      return;
+    }
+    const content = renderedMarkdown;
+    if (!content || content.length < 80) {
+      setDisplayMarkdown(content);
+      return;
+    }
+    let index = 0;
+    const step = Math.max(2, Math.floor(content.length / 400));
+    let active = true;
+    setDisplayMarkdown("");
+    const timer = window.setInterval(() => {
+      if (!active) return;
+      index = Math.min(content.length, index + step);
+      setDisplayMarkdown(content.slice(0, index));
+      if (index >= content.length) {
+        window.clearInterval(timer);
+      }
+    }, 16);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [renderedMarkdown, currentFile?.path, isEditing]);
 
   const applySession = (payload: SessionResponse) => {
     setState(payload.state);
@@ -226,18 +254,30 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const parsed = parseSetupInput(inputText, settings);
-      setSettings(parsed.settings);
+      const knowledge = setupForm.knowledge_point.trim();
+      const baseTopic = setupForm.topic.trim();
+      const mergedTopic = knowledge
+        ? baseTopic
+          ? `${baseTopic}｜知识点：${knowledge}`
+          : `知识点：${knowledge}`
+        : baseTopic;
       const payload = await fetchJson<SessionResponse>("/api/sessions", {
         method: "POST",
         body: JSON.stringify({
-          ...parsed.settings,
-          user_input: parsed.userInput,
+          topic: mergedTopic,
+          grade_level: setupForm.grade_level,
+          duration: setupForm.duration,
+          classroom_mode: setupForm.classroom_mode,
+          classroom_context: setupForm.classroom_context,
+          hitl_enabled: setupForm.hitl_enabled,
+          cascade_default: setupForm.cascade_default,
+          user_input: setupForm.request.trim(),
         }),
       });
+      setSettings(setupForm);
       setSessionId(payload.session_id);
       localStorage.setItem("session_id", payload.session_id);
-      setInputText("");
+      setFeedbackText("");
       applySession(payload);
     } catch (err) {
       setError((err as Error).message);
@@ -246,32 +286,51 @@ export default function App() {
     }
   };
 
-  const handleAction = async (action: "accept" | "regenerate" | "reset") => {
+  const handleAction = async (action: "accept" | "reset") => {
     if (!sessionId) return;
     setLoading(true);
     setError(null);
     try {
-      const body: Record<string, unknown> = { action };
-      if (action === "regenerate") {
-        if (!inputText.trim()) {
-          setLoading(false);
-          return;
-        }
-        body.feedback = inputText.trim();
-        if (regenTarget !== "pending") {
-          body.target_component = regenTarget;
-        }
-        setInputText("");
-      }
       const payload = await fetchJson<SessionResponse>(`/api/sessions/${sessionId}/actions`, {
         method: "POST",
-        body: JSON.stringify(body),
+        body: JSON.stringify({ action }),
       });
       if (action === "reset") {
         applySession(payload);
       } else {
         applySession(payload);
       }
+      if (action === "accept") {
+        setFeedbackMode(false);
+        setFeedbackText("");
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSendFeedback = async () => {
+    if (!sessionId) return;
+    if (!feedbackText.trim()) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const body: Record<string, unknown> = {
+        action: "regenerate",
+        feedback: feedbackText.trim(),
+      };
+      if (regenTarget !== "pending") {
+        body.target_component = regenTarget;
+      }
+      const payload = await fetchJson<SessionResponse>(`/api/sessions/${sessionId}/actions`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      setFeedbackText("");
+      setFeedbackMode(false);
+      applySession(payload);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -282,6 +341,10 @@ export default function App() {
   const handleSaveEdit = async () => {
     if (!sessionId || !selectedPath || !currentFile) return;
     if (!currentFile.editable) return;
+    if (editValue === (currentFile.content ?? "")) {
+      setIsEditing(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -301,11 +364,6 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleCancelEdit = () => {
-    setIsEditing(false);
-    setEditValue(currentFile?.content ?? "");
   };
 
   const handleExport = async () => {
@@ -344,10 +402,11 @@ export default function App() {
 
   const awaitingUser = state?.await_user ?? false;
   const pendingComponent = state?.pending_component || state?.current_component || "";
+  const pendingLabel = COMPONENT_LABELS[pendingComponent] || pendingComponent || "暂无";
   const completed = isComplete(state);
 
   let statusHeadline = "准备就绪";
-  let statusDetail = "请在下方一次性回答问题并描述需求。";
+  let statusDetail = "请在上方填写设置并开始生成。";
   if (loading) {
     statusHeadline = "Agent 思考中";
     statusDetail = "正在处理下一步...";
@@ -359,26 +418,30 @@ export default function App() {
     statusDetail = "在左侧打开 course_design.md 查看结果。";
   } else if (awaitingUser) {
     statusHeadline = "等待确认";
-    statusDetail = pendingComponent ? `待确认：${pendingComponent}` : "请确认或反馈修改。";
+    statusDetail = pendingComponent ? `待确认：${pendingLabel}` : "请确认或反馈修改。";
   } else if (sessionId) {
     statusHeadline = "进行中";
-    statusDetail = pendingComponent ? `当前阶段：${pendingComponent}` : "可以继续生成。";
+    statusDetail = pendingComponent ? `当前阶段：${pendingLabel}` : "等待下一步生成。";
   }
 
-  const inputPlaceholder = sessionId
-    ? "填写反馈后点击“重新生成”。"
-    : "按“题目/年级/时长/模式/确认方式”一次性回答，并附上需求描述。";
+  const feedbackPlaceholder = feedbackMode || awaitingUser
+    ? "请输入修改意见，回车发送（Shift+Enter 换行）"
+    : "可输入修改意见，回车发送";
+
+  const canStart =
+    !loading &&
+    (setupForm.topic.trim() || setupForm.knowledge_point.trim() || setupForm.request.trim());
 
   return (
     <div className="app-shell">
       <header className="topbar">
         <div className="brand">
           <span className="brand-dot" />
-          PBL Studio
+          PBL 工作台
         </div>
         <div className="meta">
           {sessionId ? (
-            <span>Session {sessionId.slice(0, 8)}</span>
+            <span>会话 {sessionId.slice(0, 8)}</span>
           ) : (
             <span>未开始</span>
           )}
@@ -393,59 +456,98 @@ export default function App() {
               <div className="panel-subtitle">虚拟文件</div>
             </div>
             <div className="panel-body">
-              {Object.keys(groupedFiles).length === 0 && (
-                <div className="empty">暂无文件</div>
+              {!virtualFiles && <div className="empty">暂无文件</div>}
+              {virtualFiles && (
+                <div className="file-section">
+                  <div className="section-title">课程总览</div>
+                  {courseDesignFile ? (
+                    <button
+                      className={`file-item ${selectedPath === courseDesignFile.path ? "active" : ""}`}
+                      onClick={() => handleSelectFile(courseDesignFile.path)}
+                    >
+                      <span className="file-name">{courseDesignFile.path.split("/").pop()}</span>
+                      <span className="file-status">{STATUS_LABELS[courseDesignFile.status] || "信息"}</span>
+                    </button>
+                  ) : (
+                    <div className="empty">暂无</div>
+                  )}
+                </div>
               )}
-              {Object.entries(groupedFiles).map(([group, files]) => (
-                <div className="file-group" key={group}>
-                  <div className="group-title">{group}</div>
-                  {files.map((file) => (
+
+              {virtualFiles &&
+                courseSections.map((section) => (
+                  <div className="file-section" key={section.key}>
+                    <div className="section-title">{section.title}</div>
+                    {section.files.length === 0 ? (
+                      <div className="empty">暂无</div>
+                    ) : (
+                      section.files.map((file) => (
+                        <button
+                          key={file.path}
+                          className={`file-item ${selectedPath === file.path ? "active" : ""}`}
+                          onClick={() => handleSelectFile(file.path)}
+                        >
+                          <span className="file-name">
+                            {file.status === "pending" && <span className="status-dot" />}
+                            {file.path.split("/").pop()}
+                          </span>
+                          <span
+                            className="file-status"
+                            style={{ color: statusColor[file.status] || "var(--muted)" }}
+                          >
+                            {STATUS_LABELS[file.status] || "信息"}
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                ))}
+
+              {virtualFiles && debugFiles.length > 0 && (
+                <div className="file-section">
+                  <div className="section-title">调试</div>
+                  {debugFiles.map((file) => (
                     <button
                       key={file.path}
                       className={`file-item ${selectedPath === file.path ? "active" : ""}`}
                       onClick={() => handleSelectFile(file.path)}
                     >
                       <span className="file-name">{file.path.split("/").pop()}</span>
-                      <span
-                        className="file-status"
-                        style={{ color: statusColor[file.status] || "var(--muted)" }}
-                      >
-                        {file.status}
-                      </span>
+                      <span className="file-status">{STATUS_LABELS[file.status] || "信息"}</span>
                     </button>
                   ))}
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </Panel>
         <PanelResizeHandle className="resize-handle" />
         <Panel defaultSize={55} minSize={30}>
           <div className="panel editor">
-            <div className="panel-header">
-              <div className="panel-title">预览</div>
-              <div className="panel-subtitle">
-                {selectedPath || "请选择文件"}
+            <div className="panel-header editor-header">
+              <div className="editor-title">
+                <div className="panel-title">预览</div>
+                <div className="panel-subtitle">{selectedPath || "请选择文件"}</div>
               </div>
               <div className="panel-actions">
-                {currentFile?.editable && !isEditing && (
-                  <button
-                    className="button"
-                    onClick={() => {
-                      setEditValue(currentFile?.content ?? "");
-                      setIsEditing(true);
-                    }}
-                  >
-                    编辑
-                  </button>
-                )}
-                {isEditing && (
+                {currentFile?.editable && (
                   <>
-                    <button className="button primary" onClick={handleSaveEdit} disabled={loading}>
-                      保存
+                    <button
+                      className={`button ${isEditing ? "" : "primary"}`}
+                      onClick={() => {
+                        setEditValue(currentFile?.content ?? "");
+                        setIsEditing(true);
+                      }}
+                      disabled={isEditing}
+                    >
+                      编辑
                     </button>
-                    <button className="button" onClick={handleCancelEdit} disabled={loading}>
-                      取消
+                    <button
+                      className="button"
+                      onClick={handleSaveEdit}
+                      disabled={!isEditing || loading}
+                    >
+                      浏览
                     </button>
                   </>
                 )}
@@ -464,7 +566,7 @@ export default function App() {
                 ) : (
                   <div className="markdown-view">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {renderedMarkdown}
+                      {displayMarkdown}
                     </ReactMarkdown>
                   </div>
                 )
@@ -484,32 +586,113 @@ export default function App() {
             <div className="panel-body chat-body">
               {!sessionId ? (
                 <div className="settings">
-                  <div className="settings-title">Session 问答</div>
-                  <div className="question-list">
-                    <div className="question-item">
-                      1. 年级：小学 / 初中 / 高中
-                    </div>
-                    <div className="question-item">
-                      2. 时长：40分钟 / 80分钟 / 90分钟（可自定义）
-                    </div>
-                    <div className="question-item">
-                      3. 课堂模式：normal / no_device / computer_lab
-                    </div>
-                    <div className="question-item">
-                      4. 是否需要确认：HITL=on / HITL=off
-                    </div>
-                    <div className="question-item">
-                      5. 是否级联：cascade=on / cascade=off
-                    </div>
-                    <div className="question-tip">
-                      示例：主题=图像识别；初中；80分钟；normal；HITL=on；cascade=on；需求：设计一节PBL课程
-                    </div>
+                  <div className="settings-title">会话设置</div>
+                  <div className="settings-grid">
+                    <label>
+                      年级
+                      <select
+                        value={setupForm.grade_level}
+                        onChange={(event) =>
+                          setSetupForm((prev) => ({ ...prev, grade_level: event.target.value }))
+                        }
+                      >
+                        <option value="小学">小学</option>
+                        <option value="初中">初中</option>
+                        <option value="高中">高中</option>
+                      </select>
+                    </label>
+                    <label>
+                      时长（分钟）
+                      <input
+                        type="number"
+                        min={10}
+                        value={setupForm.duration}
+                        onChange={(event) =>
+                          setSetupForm((prev) => ({ ...prev, duration: Number(event.target.value) }))
+                        }
+                      />
+                    </label>
+                    <label>
+                      课堂模式
+                      <select
+                        value={setupForm.classroom_mode}
+                        onChange={(event) =>
+                          setSetupForm((prev) => ({ ...prev, classroom_mode: event.target.value }))
+                        }
+                      >
+                        <option value="normal">常规</option>
+                        <option value="no_device">无设备</option>
+                        <option value="computer_lab">机房</option>
+                      </select>
+                    </label>
+                    <label>
+                      主题
+                      <input
+                        value={setupForm.topic}
+                        onChange={(event) =>
+                          setSetupForm((prev) => ({ ...prev, topic: event.target.value }))
+                        }
+                        placeholder="例如：图像识别"
+                      />
+                    </label>
+                    <label>
+                      知识点
+                      <input
+                        value={setupForm.knowledge_point}
+                        onChange={(event) =>
+                          setSetupForm((prev) => ({ ...prev, knowledge_point: event.target.value }))
+                        }
+                        placeholder="例如：卷积神经网络"
+                      />
+                    </label>
+                    <label>
+                      课堂背景
+                      <input
+                        value={setupForm.classroom_context}
+                        onChange={(event) =>
+                          setSetupForm((prev) => ({ ...prev, classroom_context: event.target.value }))
+                        }
+                        placeholder="可选"
+                      />
+                    </label>
+                    <label className="full-span">
+                      需求描述
+                      <textarea
+                        value={setupForm.request}
+                        onChange={(event) =>
+                          setSetupForm((prev) => ({ ...prev, request: event.target.value }))
+                        }
+                        placeholder="一句话描述期望的课程设计"
+                      />
+                    </label>
+                  </div>
+                  <div className="toggle-row">
+                    <label className="toggle">
+                      <input
+                        type="checkbox"
+                        checked={setupForm.hitl_enabled}
+                        onChange={(event) =>
+                          setSetupForm((prev) => ({ ...prev, hitl_enabled: event.target.checked }))
+                        }
+                      />
+                      启用确认（HITL）
+                    </label>
+                    <label className="toggle">
+                      <input
+                        type="checkbox"
+                        checked={setupForm.cascade_default}
+                        onChange={(event) =>
+                          setSetupForm((prev) => ({ ...prev, cascade_default: event.target.checked }))
+                        }
+                      />
+                      启用级联
+                    </label>
                   </div>
                   <div className="settings-actions">
                     <button
                       className="button primary"
                       onClick={handleStart}
-                      disabled={loading || !inputText.trim()}
+                      disabled={!canStart}
                     >
                       开始
                     </button>
@@ -517,20 +700,18 @@ export default function App() {
                 </div>
               ) : (
                 <div className="settings compact">
-                  <div className="settings-title">Session 设置</div>
+                  <div className="settings-title">会话设置</div>
                   <div className="settings-summary">
                     <div>年级：{settings.grade_level || "未指定"}</div>
                     <div>时长：{settings.duration} 分钟</div>
-                    <div>模式：{settings.classroom_mode}</div>
+                    <div>模式：{MODE_LABELS[settings.classroom_mode] || settings.classroom_mode}</div>
+                    <div>主题：{settings.topic || "未指定"}</div>
+                    <div>知识点：{settings.knowledge_point || "未指定"}</div>
                     <div>确认：{settings.hitl_enabled ? "开启" : "关闭"}</div>
                     <div>级联：{settings.cascade_default ? "开启" : "关闭"}</div>
                   </div>
                   <div className="settings-actions">
-                    <button
-                      className="button"
-                      onClick={handleExport}
-                      disabled={!sessionId || loading}
-                    >
+                    <button className="button" onClick={handleExport} disabled={!sessionId || loading}>
                       下载 JSON
                     </button>
                     <button
@@ -561,19 +742,18 @@ export default function App() {
                 <div className="status-detail">{statusDetail}</div>
                 {awaitingUser && (
                   <div className="status-actions">
-                    <button
-                      className="button primary"
-                      onClick={() => handleAction("accept")}
-                      disabled={loading}
-                    >
+                    <button className="button primary" onClick={() => handleAction("accept")} disabled={loading}>
                       接受
                     </button>
                     <button
                       className="button"
-                      onClick={() => handleAction("regenerate")}
+                      onClick={() => {
+                        setFeedbackMode(true);
+                        inputRef.current?.focus();
+                      }}
                       disabled={loading}
                     >
-                      重新生成
+                      拒绝
                     </button>
                   </div>
                 )}
@@ -583,7 +763,7 @@ export default function App() {
             <div className="chat-input">
               {sessionId && (
                 <div className="pending-bar">
-                  <span>当前阶段：{pendingComponent || "无"}</span>
+                  <span>当前阶段：{pendingLabel}</span>
                   <select
                     value={regenTarget}
                     onChange={(event) => setRegenTarget(event.target.value)}
@@ -591,7 +771,7 @@ export default function App() {
                     <option value="pending">当前</option>
                     {COMPONENTS.map((component) => (
                       <option key={component} value={component}>
-                        {component}
+                        {COMPONENT_LABELS[component] || component}
                       </option>
                     ))}
                   </select>
@@ -600,10 +780,28 @@ export default function App() {
               <textarea
                 ref={inputRef}
                 rows={4}
-                placeholder={inputPlaceholder}
-                value={inputText}
-                onChange={(event) => setInputText(event.target.value)}
+                placeholder={sessionId ? feedbackPlaceholder : "会话未开始，先完成上方设置"}
+                value={feedbackText}
+                onChange={(event) => setFeedbackText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    if (!loading && sessionId) {
+                      handleSendFeedback();
+                    }
+                  }
+                }}
+                disabled={!sessionId}
               />
+              <div className="chat-actions">
+                <button
+                  className="button primary"
+                  onClick={handleSendFeedback}
+                  disabled={!sessionId || loading || !feedbackText.trim()}
+                >
+                  发送
+                </button>
+              </div>
               {error && !loading && <div className="error">{error}</div>}
             </div>
           </div>
