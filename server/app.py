@@ -11,7 +11,7 @@ from graph.workflow import run_workflow_step
 from state.agent_state import create_initial_state
 from server.models import ActionRequest, FileUpdateRequest, SessionCreateRequest, SessionResponse
 from server.session_store import create_session, get_session, update_config, update_state
-from server.state_ops import apply_file_update, build_user_input
+from server.state_ops import apply_file_update, build_user_input, determine_start_from
 from server.virtual_files import build_virtual_files
 
 
@@ -60,6 +60,7 @@ def _create_state_from_request(request: SessionCreateRequest) -> Dict[str, Any]:
         request.grade_level,
         request.duration,
     )
+    start_from = determine_start_from(user_input, request.seed_components)
     return create_initial_state(
         user_input=user_input,
         topic=request.topic,
@@ -67,7 +68,7 @@ def _create_state_from_request(request: SessionCreateRequest) -> Dict[str, Any]:
         duration=request.duration,
         classroom_context=request.classroom_context,
         classroom_mode=request.classroom_mode,
-        start_from=request.start_from,
+        start_from=start_from,
         provided_components=request.seed_components,
         hitl_enabled=request.hitl_enabled,
         cascade_default=request.cascade_default,
@@ -79,6 +80,7 @@ def _create_state_from_request(request: SessionCreateRequest) -> Dict[str, Any]:
 def create_session_api(request: SessionCreateRequest) -> SessionResponse:
     config_payload = request.model_dump()
     state = _create_state_from_request(request)
+    config_payload["start_from"] = state.get("start_from", config_payload.get("start_from"))
     session_id = create_session(config_payload, state)
 
     error = None

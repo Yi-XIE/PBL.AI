@@ -1,34 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import Editor from "@monaco-editor/react";
+import ReactMarkdown from "react-markdown";
 import type { AgentState, SessionResponse, VirtualFile, VirtualFilesPayload } from "./types";
 
-type Message = {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-};
-
 type Settings = {
-  user_input: string;
   topic: string;
   grade_level: string;
   duration: number;
   classroom_mode: string;
   classroom_context: string;
-  start_from: string;
   hitl_enabled: boolean;
   cascade_default: boolean;
 };
 
 const DEFAULT_SETTINGS: Settings = {
-  user_input: "",
   topic: "",
   grade_level: "",
   duration: 80,
   classroom_mode: "normal",
   classroom_context: "",
-  start_from: "topic",
   hitl_enabled: true,
   cascade_default: true,
 };
@@ -44,19 +34,6 @@ const statusColor: Record<string, string> = {
   info: "var(--muted)",
 };
 
-function buildPreviewText(preview: Record<string, unknown> | undefined) {
-  if (!preview) {
-    return "";
-  }
-  const title = typeof preview.title === "string" ? preview.title : "Preview";
-  const text = typeof preview.text === "string" ? preview.text : "";
-  const chain = Array.isArray(preview.question_chain) ? preview.question_chain : [];
-  const chainText = chain.length
-    ? `\n\nQuestion Chain:\n${chain.map((item, index) => `${index + 1}. ${item}`).join("\n")}`
-    : "";
-  return `${title}\n\n${text}${chainText}`.trim();
-}
-
 function isComplete(state: AgentState | null) {
   if (!state) return false;
   const progress = state.design_progress || {};
@@ -68,6 +45,19 @@ function isComplete(state: AgentState | null) {
       ? ["experiment"]
       : ["scenario", "driving_question", "question_chain", "activity", "experiment"];
   return required.every((key) => progress[key]);
+}
+
+function buildMarkdown(file: VirtualFile | null) {
+  if (!file) return "";
+  const content = file.content ?? "";
+  if (!content.trim()) {
+    return "_No content yet._";
+  }
+  if (file.language === "markdown") {
+    return content;
+  }
+  const lang = file.language || "";
+  return `\`\`\`${lang}\n${content}\n\`\`\``;
 }
 
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
@@ -96,14 +86,11 @@ export default function App() {
   const [state, setState] = useState<AgentState | null>(null);
   const [virtualFiles, setVirtualFiles] = useState<VirtualFilesPayload | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [dirtyMap, setDirtyMap] = useState<Record<string, string>>({});
-  const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const [regenTarget, setRegenTarget] = useState("pending");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const lastPreviewSignature = useRef<string>("");
   const lastPendingRef = useRef<string | null>(null);
 
   const groupedFiles = useMemo(() => {
@@ -123,19 +110,13 @@ export default function App() {
     return virtualFiles?.files.find((file) => file.path === selectedPath) || null;
   }, [selectedPath, virtualFiles]);
 
-  const editorValue = selectedPath
-    ? dirtyMap[selectedPath] ?? currentFile?.content ?? ""
-    : "";
+  const renderedMarkdown = buildMarkdown(currentFile);
 
-  const applySession = (payload: SessionResponse, options?: { resetMessages?: boolean }) => {
-    if (options?.resetMessages) {
-      setMessages([]);
-    }
+  const applySession = (payload: SessionResponse) => {
     setState(payload.state);
     setVirtualFiles(payload.virtual_files);
     if (payload.error) {
       setError(payload.error);
-      pushMessage("system", payload.error);
     } else {
       setError(null);
     }
@@ -150,17 +131,6 @@ export default function App() {
     } else if (!selectedPath && payload.virtual_files?.selected_default) {
       setSelectedPath(payload.virtual_files.selected_default);
     }
-  };
-
-  const pushMessage = (role: Message["role"], content: string) => {
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `${role}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        role,
-        content,
-      },
-    ]);
   };
 
   const loadSession = async (id: string) => {
@@ -184,24 +154,10 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => {
-    const previewText = buildPreviewText(state?.pending_preview);
-    if (!previewText) {
-      return;
-    }
-    const signature = `${state?.pending_component}-${previewText}`;
-    if (signature !== lastPreviewSignature.current) {
-      lastPreviewSignature.current = signature;
-      pushMessage("assistant", previewText);
-    }
-  }, [state?.pending_component, state?.pending_preview]);
-
   const handleStart = async () => {
     setLoading(true);
+    setError(null);
     try {
-      setMessages([]);
-      setDirtyMap({});
-      lastPreviewSignature.current = "";
       const payload = await fetchJson<SessionResponse>("/api/sessions", {
         method: "POST",
         body: JSON.stringify({
@@ -211,14 +167,10 @@ export default function App() {
       });
       setSessionId(payload.session_id);
       localStorage.setItem("session_id", payload.session_id);
-      if (inputText.trim()) {
-        pushMessage("user", inputText.trim());
-      }
       setInputText("");
-      applySession(payload, { resetMessages: false });
+      applySession(payload);
     } catch (err) {
       setError((err as Error).message);
-      pushMessage("system", (err as Error).message);
     } finally {
       setLoading(false);
     }
@@ -227,6 +179,7 @@ export default function App() {
   const handleAction = async (action: "accept" | "continue" | "regenerate" | "reset") => {
     if (!sessionId) return;
     setLoading(true);
+    setError(null);
     try {
       const body: Record<string, unknown> = { action };
       if (action === "regenerate") {
@@ -238,7 +191,6 @@ export default function App() {
         if (regenTarget !== "pending") {
           body.target_component = regenTarget;
         }
-        pushMessage("user", inputText.trim());
         setInputText("");
       }
       const payload = await fetchJson<SessionResponse>(`/api/sessions/${sessionId}/actions`, {
@@ -246,44 +198,12 @@ export default function App() {
         body: JSON.stringify(body),
       });
       if (action === "reset") {
-        setDirtyMap({});
-        applySession(payload, { resetMessages: true });
+        applySession(payload);
       } else {
         applySession(payload);
       }
     } catch (err) {
       setError((err as Error).message);
-      pushMessage("system", (err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSave = async () => {
-    if (!sessionId || !selectedPath || !currentFile) return;
-    if (!currentFile.editable) return;
-    const content = dirtyMap[selectedPath] ?? currentFile.content ?? "";
-    setLoading(true);
-    try {
-      const payload = await fetchJson<SessionResponse>(`/api/sessions/${sessionId}/files`, {
-        method: "PUT",
-        body: JSON.stringify({
-          path: selectedPath,
-          content,
-          cascade: settings.cascade_default,
-          lock: true,
-        }),
-      });
-      setDirtyMap((prev) => {
-        const next = { ...prev };
-        delete next[selectedPath];
-        return next;
-      });
-      pushMessage("system", `Saved ${selectedPath}. Downstream components were invalidated.`);
-      applySession(payload);
-    } catch (err) {
-      setError((err as Error).message);
-      pushMessage("system", (err as Error).message);
     } finally {
       setLoading(false);
     }
@@ -292,6 +212,7 @@ export default function App() {
   const handleExport = async () => {
     if (!sessionId) return;
     setLoading(true);
+    setError(null);
     try {
       const response = await fetch(`/api/sessions/${sessionId}/export`);
       if (!response.ok) {
@@ -306,28 +227,42 @@ export default function App() {
       window.URL.revokeObjectURL(url);
     } catch (err) {
       setError((err as Error).message);
-      pushMessage("system", (err as Error).message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleSelectFile = (path: string) => {
-    if (selectedPath && dirtyMap[selectedPath] !== undefined && selectedPath !== path) {
-      const proceed = window.confirm("Discard unsaved changes?");
-      if (!proceed) return;
-      setDirtyMap((prev) => {
-        const next = { ...prev };
-        delete next[selectedPath];
-        return next;
-      });
-    }
     setSelectedPath(path);
   };
 
-  const isDirty = selectedPath ? dirtyMap[selectedPath] !== undefined : false;
   const awaitingUser = state?.await_user ?? false;
-  const readyToContinue = !!sessionId && !awaitingUser && !isComplete(state);
+  const pendingComponent = state?.pending_component || state?.current_component || "";
+  const completed = isComplete(state);
+  const readyToContinue = !!sessionId && !awaitingUser && !completed;
+
+  let statusHeadline = "准备就绪";
+  let statusDetail = "请输入需求以开始。";
+  if (loading) {
+    statusHeadline = "Agent 思考中";
+    statusDetail = "正在处理下一步...";
+  } else if (error) {
+    statusHeadline = "错误";
+    statusDetail = error;
+  } else if (completed) {
+    statusHeadline = "已完成";
+    statusDetail = "在左侧打开 course_design.md 查看结果。";
+  } else if (awaitingUser) {
+    statusHeadline = "等待确认";
+    statusDetail = pendingComponent ? `待确认：${pendingComponent}` : "请确认或反馈修改。";
+  } else if (sessionId) {
+    statusHeadline = "进行中";
+    statusDetail = pendingComponent ? `下一步：${pendingComponent}` : "可以继续生成。";
+  }
+
+  const inputPlaceholder = sessionId
+    ? "填写反馈后点击 Regenerate。"
+    : "描述你想生成的课程...";
 
   return (
     <div className="app-shell">
@@ -383,36 +318,16 @@ export default function App() {
         <Panel defaultSize={55} minSize={30}>
           <div className="panel editor">
             <div className="panel-header">
-              <div className="panel-title">Editor</div>
+              <div className="panel-title">Viewer</div>
               <div className="panel-subtitle">
-                {selectedPath || "Select a file"} {isDirty ? "• Unsaved" : ""}
-              </div>
-              <div className="panel-actions">
-                <button className="button" disabled={!isDirty || loading} onClick={handleSave}>
-                  Save
-                </button>
+                {selectedPath || "Select a file"}
               </div>
             </div>
             <div className="panel-body editor-body">
               {currentFile ? (
-                <Editor
-                  height="100%"
-                  theme="vs-dark"
-                  language={currentFile.language || "markdown"}
-                  value={editorValue}
-                  onChange={(value) => {
-                    if (!selectedPath) return;
-                    setDirtyMap((prev) => ({ ...prev, [selectedPath]: value ?? "" }));
-                  }}
-                  options={{
-                    readOnly: !currentFile.editable,
-                    minimap: { enabled: false },
-                    fontSize: 13,
-                    fontFamily: "Fira Code, Menlo, Consolas, monospace",
-                    wordWrap: "on",
-                    scrollBeyondLastLine: false,
-                  }}
-                />
+                <div className="markdown-view">
+                  <ReactMarkdown>{renderedMarkdown}</ReactMarkdown>
+                </div>
               ) : (
                 <div className="empty">Select a file to view content.</div>
               )}
@@ -423,10 +338,8 @@ export default function App() {
         <Panel defaultSize={25} minSize={18}>
           <div className="panel chat">
             <div className="panel-header">
-              <div className="panel-title">Chat</div>
-              <div className="panel-subtitle">
-                {awaitingUser ? "Awaiting approval" : "Ready"}
-              </div>
+              <div className="panel-title">Agent</div>
+              <div className="panel-subtitle">{awaitingUser ? "Awaiting approval" : "Ready"}</div>
             </div>
             <div className="panel-body chat-body">
               <div className="settings">
@@ -468,21 +381,6 @@ export default function App() {
                       }
                       disabled={!!sessionId}
                     />
-                  </label>
-                  <label>
-                    Start From
-                    <select
-                      value={settings.start_from}
-                      onChange={(event) =>
-                        setSettings((prev) => ({ ...prev, start_from: event.target.value }))
-                      }
-                      disabled={!!sessionId}
-                    >
-                      <option value="topic">topic</option>
-                      <option value="scenario">scenario</option>
-                      <option value="activity">activity</option>
-                      <option value="experiment">experiment</option>
-                    </select>
                   </label>
                   <label>
                     Classroom Mode
@@ -568,23 +466,28 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="messages">
-                {messages.length === 0 && (
-                  <div className="empty">Messages will appear here.</div>
-                )}
-                {messages.map((message) => (
-                  <div key={message.id} className={`message ${message.role}`}>
-                    <div className="message-role">{message.role}</div>
-                    <div className="message-content">{message.content}</div>
+              <div className="status-card">
+                <div className="status-title">Agent Status</div>
+                {loading ? (
+                  <div className="thinking">
+                    Agent思考中
+                    <span className="dots">
+                      <span>.</span>
+                      <span>.</span>
+                      <span>.</span>
+                    </span>
                   </div>
-                ))}
+                ) : (
+                  <div className="status-text">{statusHeadline}</div>
+                )}
+                <div className="status-detail">{statusDetail}</div>
               </div>
             </div>
 
             <div className="chat-input">
               <textarea
                 rows={3}
-                placeholder="Send feedback or describe the request..."
+                placeholder={inputPlaceholder}
                 value={inputText}
                 onChange={(event) => setInputText(event.target.value)}
               />
@@ -622,8 +525,7 @@ export default function App() {
                   Continue
                 </button>
               </div>
-              {loading && <div className="loading">Working...</div>}
-              {error && <div className="error">{error}</div>}
+              {error && !loading && <div className="error">{error}</div>}
             </div>
           </div>
         </Panel>

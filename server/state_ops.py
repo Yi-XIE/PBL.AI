@@ -1,6 +1,9 @@
 import json
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+from config import DEEPSEEK_API_KEY, get_llm
+from langchain_core.prompts import ChatPromptTemplate
 
 
 def build_user_input(user_input: str, topic: str, grade_level: str, duration: int) -> str:
@@ -9,6 +12,111 @@ def build_user_input(user_input: str, topic: str, grade_level: str, duration: in
     if topic:
         return f"Design a PBL course on '{topic}' for grade {grade_level}, {duration} minutes."
     return ""
+
+
+def _parse_start_from(text: str) -> Optional[str]:
+    if not text:
+        return None
+    cleaned = text.strip()
+    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+    if match:
+        try:
+            payload = json.loads(match.group(0))
+            if isinstance(payload, dict):
+                value = str(payload.get("start_from", "")).strip().lower()
+                if value in {"topic", "scenario", "activity", "experiment"}:
+                    return value
+        except json.JSONDecodeError:
+            pass
+
+    lowered = cleaned.lower()
+    for key in ("experiment", "activity", "scenario", "topic"):
+        if key in lowered:
+            return key
+    return None
+
+
+def _explicit_start_from(user_input: str) -> Optional[str]:
+    text = (user_input or "").lower()
+    explicit_patterns = [
+        (r"\bscenario\s*:", "scenario"),
+        (r"\bactivity\s*:", "activity"),
+        (r"\bexperiment\s*:", "experiment"),
+        (r"已有场景|我有场景|给定场景|场景如下", "scenario"),
+        (r"已有活动|活动如下", "activity"),
+        (r"已有实验|实验如下", "experiment"),
+    ]
+    for pattern, value in explicit_patterns:
+        if re.search(pattern, text):
+            return value
+    return None
+
+
+def _keyword_start_from(user_input: str) -> str:
+    text = (user_input or "").lower()
+    scenario_keywords = [
+        "scenario:",
+        "existing scenario",
+    ]
+    activity_keywords = [
+        "activity:",
+        "existing activity",
+    ]
+    experiment_keywords = [
+        "experiment:",
+        "existing experiment",
+    ]
+
+    if any(key in text for key in scenario_keywords):
+        return "scenario"
+    if any(key in text for key in activity_keywords):
+        return "activity"
+    if any(key in text for key in experiment_keywords):
+        return "experiment"
+    return "topic"
+
+
+def _llm_start_from(user_input: str) -> Optional[str]:
+    if not user_input.strip() or not DEEPSEEK_API_KEY:
+        return None
+    try:
+        llm = get_llm(temperature=0)
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    "You are a router. Decide which component the user already has. "
+                    "If the user explicitly mentions or labels a component (e.g., "
+                    "\"scenario:\" / \"activity:\" / \"experiment:\" / \"已有场景\"), "
+                    "choose that component. Return JSON only: "
+                    "{\"start_from\":\"topic|scenario|activity|experiment\"}.",
+                ),
+                ("user", "{user_input}"),
+            ]
+        )
+        response = (prompt | llm).invoke({"user_input": user_input})
+        return _parse_start_from(response.content or "")
+    except Exception:
+        return None
+
+
+def determine_start_from(user_input: str, seed_components: Optional[Dict[str, str]] = None) -> str:
+    seeds = seed_components or {}
+    if seeds.get("experiment"):
+        return "experiment"
+    if seeds.get("activity"):
+        return "activity"
+    if seeds.get("scenario"):
+        return "scenario"
+
+    explicit = _explicit_start_from(user_input)
+    if explicit:
+        return explicit
+
+    llm_choice = _llm_start_from(user_input)
+    if llm_choice:
+        return llm_choice
+    return _keyword_start_from(user_input)
 
 
 def parse_question_chain(content: str) -> List[str]:

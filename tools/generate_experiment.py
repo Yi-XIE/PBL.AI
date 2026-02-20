@@ -27,6 +27,9 @@ def generate_experiment(
     activity_summary: str,
     context_summary: str,
     knowledge_snippets: Dict[str, Any],
+    classroom_mode: str = "normal",
+    classroom_context: str = "",
+    user_feedback: str = "",
     llm: ChatOpenAI = None,
 ) -> str:
     """
@@ -75,6 +78,9 @@ def generate_experiment(
         "context_summary": context_summary,
         "knowledge_snippets": grade_rules,
         "safety_constraints": safety_str,
+        "classroom_mode": classroom_mode,
+        "classroom_context": classroom_context or "默认普通教室，低设备假设",
+        "user_feedback": user_feedback or "无",
     })
 
     return result.content
@@ -84,7 +90,7 @@ def generate_experiment(
 TOOL_INFO = {
     "name": "generate_experiment",
     "description": "根据主题和活动背景生成安全、有趣的动手实验方案",
-    "inputs": ["topic", "grade_level", "driving_question", "activity_summary", "context_summary", "knowledge_snippets"],
+    "inputs": ["topic", "grade_level", "driving_question", "activity_summary", "context_summary", "knowledge_snippets", "classroom_mode", "classroom_context", "user_feedback"],
     "output": "experiment",
     "updates_progress": "experiment",
 }

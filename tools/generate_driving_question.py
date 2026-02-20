@@ -61,6 +61,7 @@ def generate_driving_question(
     scenario: str,
     grade_level: str,
     context_summary: str,
+    user_feedback: str = "",
     llm: ChatOpenAI = None,
 ) -> Dict[str, Any]:
     """
@@ -92,6 +93,7 @@ def generate_driving_question(
         "scenario": scenario,
         "grade_level": grade_level,
         "context_summary": context_summary,
+        "user_feedback": user_feedback or "无",
     })
 
     response_text = result.content
@@ -110,6 +112,25 @@ def generate_driving_question(
 
     # 解析问题链
     question_chain = parse_question_chain(response_text)
+    if len(question_chain) < 3:
+        # Retry once with explicit constraint
+        retry_feedback = (user_feedback + "；" if user_feedback else "") + "问题链必须恰好3个子问题，不多不少。"
+        result = chain.invoke({
+            "scenario": scenario,
+            "grade_level": grade_level,
+            "context_summary": context_summary,
+            "user_feedback": retry_feedback,
+        })
+        response_text = result.content
+        question_chain = parse_question_chain(response_text)
+
+    # Hard constraint: keep exactly 3
+    if len(question_chain) >= 3:
+        question_chain = question_chain[:3]
+    else:
+        # Pad with placeholders if still insufficient
+        while len(question_chain) < 3:
+            question_chain.append("（待补充：请生成一个可探究的子问题）")
 
     return {
         "driving_question": driving_question,
@@ -122,7 +143,7 @@ def generate_driving_question(
 TOOL_INFO = {
     "name": "generate_driving_question",
     "description": "根据教学场景生成驱动问题和问题链",
-    "inputs": ["scenario", "grade_level", "context_summary"],
+    "inputs": ["scenario", "grade_level", "context_summary", "user_feedback"],
     "output": ["driving_question", "question_chain"],
     "updates_progress": ["driving_question", "question_chain"],
 }

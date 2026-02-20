@@ -30,6 +30,13 @@ def get_duration_guidelines(duration: int) -> str:
     Returns:
         时间分配指南字符串
     """
+    if duration == 80:
+        return """
+- 总时长：80分钟（两节课：40+40）
+- 第1节课（40分钟）：活动1 + 活动2（含产出1/2）
+- 第2节课（40分钟）：活动3 + 实验 + 展示/反思（含产出3/实验记录/展示物）
+- 必须包含：三个活动一一对应三个子问题
+- 小组工作：建议每节课均包含小组讨论与产出"""
     if duration <= 45:
         return """
 - 总时长：45分钟
@@ -60,6 +67,7 @@ def generate_activity(
     duration: int,
     context_summary: str,
     knowledge_snippets: Dict[str, Any],
+    user_feedback: str = "",
     llm: ChatOpenAI = None,
 ) -> str:
     """
@@ -86,10 +94,13 @@ def generate_activity(
     # 获取时间分配指南
     duration_guidelines = get_duration_guidelines(duration)
 
-    # 格式化问题链
+    # 格式化问题链（确保3个）
+    question_chain = (question_chain or [])[:3]
+    while len(question_chain) < 3:
+        question_chain.append("（待补充子问题）")
     question_chain_str = "\n".join(
         f"{i+1}. {q}" for i, q in enumerate(question_chain)
-    ) if question_chain else "待生成"
+    )
 
     # 格式化安全约束
     safety_constraints = knowledge_snippets.get("safety_constraints", [])
@@ -114,6 +125,7 @@ def generate_activity(
         "context_summary": context_summary,
         "knowledge_snippets": knowledge_snippets.get("grade_rules", ""),
         "safety_constraints": safety_str,
+        "user_feedback": user_feedback or "无",
     })
 
     return result.content
@@ -123,7 +135,7 @@ def generate_activity(
 TOOL_INFO = {
     "name": "generate_activity",
     "description": "根据驱动问题和时长生成完整的课堂活动方案",
-    "inputs": ["driving_question", "question_chain", "grade_level", "duration", "context_summary", "knowledge_snippets"],
+    "inputs": ["driving_question", "question_chain", "grade_level", "duration", "context_summary", "knowledge_snippets", "user_feedback"],
     "output": "activity",
     "updates_progress": "activity",
 }

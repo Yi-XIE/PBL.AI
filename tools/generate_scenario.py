@@ -26,6 +26,7 @@ def generate_scenario(
     duration: int,
     context_summary: str,
     knowledge_snippets: Dict[str, Any],
+    user_feedback: str = "",
     llm: ChatOpenAI = None,
 ) -> str:
     """
@@ -66,6 +67,7 @@ def generate_scenario(
         "context_summary": context_summary,
         "grade_rules": grade_rules,
         "topic_template": topic_template,
+        "user_feedback": user_feedback or "无",
     })
 
     return result.content
@@ -75,7 +77,7 @@ def generate_scenario(
 TOOL_INFO = {
     "name": "generate_scenario",
     "description": "根据课程主题、年级和上下文生成引人入胜的教学场景",
-    "inputs": ["topic", "grade_level", "duration", "context_summary", "knowledge_snippets"],
+    "inputs": ["topic", "grade_level", "duration", "context_summary", "knowledge_snippets", "user_feedback"],
     "output": "scenario",
     "updates_progress": "scenario",
 }

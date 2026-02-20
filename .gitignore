@@ -46,6 +46,9 @@ logs/
 web/node_modules/
 web/dist/
 web/.vite/
+web/*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts
 
 # OS
 .DS_Store
