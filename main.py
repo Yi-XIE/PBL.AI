@@ -9,14 +9,12 @@ Usage:
 import argparse
 import json
 import os
-import subprocess
 import sys
 import threading
 import webbrowser
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-1
 from graph.workflow import run_workflow_step, print_course_design
 from state.agent_state import create_initial_state, is_design_complete
 
@@ -26,13 +24,6 @@ def parse_args():
         description="AI+PBL Agent - Generate PBL course design"
     )
     entry_mode = parser.add_mutually_exclusive_group()
-    entry_mode.add_argument(
-        "--ui",
-        nargs="?",
-        const="web",
-        choices=["web", "streamlit"],
-        help="Launch UI (default: web). Use --ui streamlit for legacy UI.",
-    )
     entry_mode.add_argument(
         "--cli",
         action="store_true",
@@ -107,19 +98,6 @@ def parse_args():
         help="Quiet mode",
     )
     return parser.parse_args()
-
-
-def launch_streamlit_ui() -> None:
-    ui_entry = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        "ui",
-        "app_streamlit.py",
-    )
-    if not os.path.exists(ui_entry):
-        raise FileNotFoundError(f"Streamlit UI entry not found: {ui_entry}")
-
-    cmd = [sys.executable, "-m", "streamlit", "run", ui_entry]
-    raise SystemExit(subprocess.call(cmd))
 
 
 def launch_web_ui() -> None:
@@ -233,11 +211,8 @@ def main():
     # For double-click / `python main.py` convenience:
     # If the user didn't provide any generation input, launch the UI by default.
     has_generation_input = bool(args.input) or bool(args.topic)
-    if args.ui or (not args.cli and not has_generation_input):
-        if args.ui == "streamlit":
-            launch_streamlit_ui()
-        else:
-            launch_web_ui()
+    if not args.cli and not has_generation_input:
+        launch_web_ui()
 
     if args.input:
         user_input = args.input

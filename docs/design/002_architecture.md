@@ -157,7 +157,6 @@ PBL（项目式学习）课程设计需要大量专业知识与结构化产出�
 `main.py` 默认启动 Web UI：
 - `python main.py`：启动 FastAPI 并自动打开浏览器  
 - `python main.py --cli`：CLI 模式  
-- `python main.py --ui streamlit`：旧版 Streamlit（保留）
 
 ---
 

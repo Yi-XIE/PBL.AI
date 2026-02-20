@@ -57,13 +57,6 @@ python main.py "为初中二年级设计 'AI如何识别交通标志' PBL课程�
 python main.py --topic "图像识别" --grade "初中" --duration 45
 ```
 
-### 5. Legacy Streamlit UI（可选）
-```bash
-python main.py --ui streamlit
-# 或
-streamlit run ui/app_streamlit.py
-```
-
 ## Web UI 使用方式（简要）
 - 右侧先进行一次性问答（年级、时长、课堂模式、HITL、级联、主题、课堂背景），在输入框一次性回答
 - 左侧 Explorer 显示虚拟文件树（包含 `course_design.md`）
