@@ -4,7 +4,7 @@
 """
 
 import os
-from typing import Dict, Any
+from typing import Dict, Any, List
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -71,6 +71,66 @@ def generate_scenario(
     })
 
     return result.content
+
+
+def parse_scenario_title(response_text: str) -> str:
+    """
+    浠庡搷搴旀枃鏈腑瑙ｆ瀽鍦烘櫙鍚嶇О
+    """
+    if not response_text:
+        return ""
+    lines = [line.strip() for line in response_text.splitlines()]
+    for i, line in enumerate(lines):
+        if line.startswith("###") and "鍦烘櫙鍚嶇О" in line:
+            for j in range(i + 1, len(lines)):
+                candidate = lines[j].strip()
+                if candidate:
+                    return candidate.strip("[]")
+    for line in lines:
+        if line and not line.startswith("#"):
+            return line.strip("[]")
+    return ""
+
+
+def generate_scenario_candidates(
+    topic: str,
+    grade_level: str,
+    duration: int,
+    context_summary: str,
+    knowledge_snippets: Dict[str, Any],
+    user_feedback: str = "",
+    count: int = 3,
+    llm: ChatOpenAI = None,
+) -> List[Dict[str, Any]]:
+    """
+    鐢熸垚澶氫釜鍦烘櫙鍊欓€夋柟妗?
+    """
+    if llm is None:
+        llm = get_llm()
+    candidates: List[Dict[str, Any]] = []
+    for index in range(count):
+        hint = f"璇锋彁渚涚{index + 1}涓笉鍚岃搴︾殑鍦烘櫙鏂规銆?"
+        feedback = f"{user_feedback}；{hint}" if user_feedback else hint
+        scenario_text = generate_scenario(
+            topic=topic,
+            grade_level=grade_level,
+            duration=duration,
+            context_summary=context_summary,
+            knowledge_snippets=knowledge_snippets,
+            user_feedback=feedback,
+            llm=llm,
+        )
+        candidate_id = chr(65 + index)
+        title = parse_scenario_title(scenario_text)
+        candidates.append(
+            {
+                "id": candidate_id,
+                "title": title or f"鏂规 {candidate_id}",
+                "scenario": scenario_text,
+                "rationale": "",
+            }
+        )
+    return candidates
 
 
 # 工具元信息（供 Action Node 使用）

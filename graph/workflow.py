@@ -14,6 +14,7 @@ from state.agent_state import AgentState, create_initial_state
 from nodes.start_point_node import start_point_node
 from nodes.reasoning_node import reasoning_node
 from nodes.hitl_loop_node import hitl_loop_node
+from nodes.action_node import action_node, should_continue
 
 
 def create_workflow() -> StateGraph:
@@ -21,10 +22,9 @@ def create_workflow() -> StateGraph:
     创建 PBL 课程生成工作流
 
     工作流结构：
-    START -> reasoning_node -> action_node -> [判断]
-                                          ↓
-                              未完成 -> 循环回 action_node
-                              已完成 -> END
+    START -> reasoning_node -> (hitl_loop | action_node)
+                               hitl_loop -> END
+                               action_node -> (continue -> action_node | end -> END)
 
     Returns:
         编译好的 StateGraph
@@ -36,14 +36,34 @@ def create_workflow() -> StateGraph:
     workflow.add_node("start_point", start_point_node)
     workflow.add_node("reasoning", reasoning_node)
     workflow.add_node("hitl_loop", hitl_loop_node)
+    workflow.add_node("action", action_node)
 
     # 设置入口点
     workflow.set_entry_point("start_point")
 
     # 添加边
     workflow.add_edge("start_point", "reasoning")
-    workflow.add_edge("reasoning", "hitl_loop")
+    def _route_after_reasoning(state: AgentState) -> str:
+        return "hitl_loop" if state.get("hitl_enabled", True) else "action"
+
+    workflow.add_conditional_edges(
+        "reasoning",
+        _route_after_reasoning,
+        {
+            "hitl_loop": "hitl_loop",
+            "action": "action",
+        },
+    )
     workflow.add_edge("hitl_loop", END)
+
+    workflow.add_conditional_edges(
+        "action",
+        should_continue,
+        {
+            "continue": "action",
+            "end": END,
+        },
+    )
 
     return workflow
 

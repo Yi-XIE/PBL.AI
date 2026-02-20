@@ -13,6 +13,7 @@ from state.agent_state import AgentState
 from tools import get_tool
 from config import MULTI_OPTION_COUNT
 from tools.generate_driving_question import generate_driving_question_candidates
+from tools.generate_scenario import generate_scenario_candidates
 
 
 def generate_component(
@@ -39,17 +40,32 @@ def generate_component(
     knowledge_snippets = state.get("knowledge_snippets", {})
 
     if component == "scenario":
-        state["pending_candidates"] = []
-        state["selected_candidate_id"] = None
-        result = tool_func(
-            topic=state["topic"],
-            grade_level=state["grade_level"],
-            duration=state["duration"],
-            context_summary=state.get("context_summary", ""),
-            knowledge_snippets=knowledge_snippets,
-            user_feedback=user_feedback,
-        )
-        course_design["scenario"] = result
+        if state.get("multi_option", True):
+            candidates = generate_scenario_candidates(
+                topic=state["topic"],
+                grade_level=state["grade_level"],
+                duration=state["duration"],
+                context_summary=state.get("context_summary", ""),
+                knowledge_snippets=knowledge_snippets,
+                user_feedback=user_feedback,
+                count=max(1, MULTI_OPTION_COUNT),
+            )
+            selected = candidates[0] if candidates else {}
+            course_design["scenario"] = selected.get("scenario", "")
+            state["pending_candidates"] = candidates
+            state["selected_candidate_id"] = selected.get("id")
+        else:
+            state["pending_candidates"] = []
+            state["selected_candidate_id"] = None
+            result = tool_func(
+                topic=state["topic"],
+                grade_level=state["grade_level"],
+                duration=state["duration"],
+                context_summary=state.get("context_summary", ""),
+                knowledge_snippets=knowledge_snippets,
+                user_feedback=user_feedback,
+            )
+            course_design["scenario"] = result
         progress_update = {"scenario": True}
 
     elif component == "driving_question":

@@ -31,6 +31,7 @@ export type AgentState = {
 export type Candidate = {
   id: string;
   title?: string;
+  scenario?: string;
   driving_question?: string;
   question_chain?: string[];
   rationale?: string;
@@ -49,7 +50,7 @@ export type Task = {
 
 export type Message = {
   id: string;
-  type: "status" | "explanation" | "action" | "tool_status";
+  type: "status" | "explanation" | "action" | "tool_status" | "user";
   message: string;
   stage?: string | null;
   created_at: number;

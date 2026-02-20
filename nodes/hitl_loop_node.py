@@ -77,14 +77,18 @@ def _apply_candidate_selection(
     design_progress: Dict[str, bool],
     component_validity: Dict[str, str],
 ) -> None:
-    if component != "driving_question":
+    if component == "scenario":
+        course_design["scenario"] = candidate.get("scenario", "")
+        design_progress["scenario"] = True
+        component_validity["scenario"] = "VALID"
         return
-    course_design["driving_question"] = candidate.get("driving_question", "")
-    course_design["question_chain"] = candidate.get("question_chain", [])
-    design_progress["driving_question"] = True
-    design_progress["question_chain"] = True
-    component_validity["driving_question"] = "VALID"
-    component_validity["question_chain"] = "VALID"
+    if component == "driving_question":
+        course_design["driving_question"] = candidate.get("driving_question", "")
+        course_design["question_chain"] = candidate.get("question_chain", [])
+        design_progress["driving_question"] = True
+        design_progress["question_chain"] = True
+        component_validity["driving_question"] = "VALID"
+        component_validity["question_chain"] = "VALID"
 
 
 def hitl_loop_node(state: AgentState) -> Dict[str, Any]:

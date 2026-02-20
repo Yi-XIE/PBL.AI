@@ -208,10 +208,10 @@ def render_preview(state: dict) -> None:
 def main():
     args = parse_args()
 
-    # For double-click / `python main.py` convenience:
-    # If the user didn't provide any generation input, launch the UI by default.
-    has_generation_input = bool(args.input) or bool(args.topic)
-    if not args.cli and not has_generation_input:
+    # Default to Web UI unless explicitly in CLI mode.
+    if not args.cli:
+        if args.input or args.topic:
+            print("[INFO] CLI input ignored. Launching Web UI. Use --cli to run in terminal.")
         launch_web_ui()
 
     if args.input:
