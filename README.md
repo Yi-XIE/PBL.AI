@@ -1,149 +1,92 @@
 # AI+PBL Agent MVP
 
-基于 LangGraph 的 PBL（项目式学习）课程自动生成系统。
+基于 LangGraph 的 PBL（项目式学习）课程自动生成系统。默认提供 Web UI（FastAPI + React）。
 
-## 功能特性
-
-- 自动解析用户输入，提取主题、年级、时长
-- 智能匹配预置知识库，生成上下文摘要
-- 生成完整的 PBL 课程方案，包含：
-  - 教学场景
-  - 驱动问题
-  - 问题链
-  - 活动设计
-  - 实验设计
+## 功能亮点
+- 自动解析用户输入并生成完整课程方案：scenario / driving question / question chain / activity / experiment
+- HITL 逐步确认：每个组件生成后需确认或反馈重生成
+- 上游编辑默认级联：修改 scenario 等上游会标记下游失效
+- VSCode 风格三栏界面：Explorer / Markdown Viewer / 状态与交互
 
 ## 快速开始
 
 ### 1. 安装依赖
-
 ```bash
 pip install -r requirements.txt
 ```
 
 ### 2. 配置 API Key
-
-复制 `.env.example` 为 `.env`，填入你的 DeepSeek API Key：
-
+复制 `.env.example` 为 `.env` 并填写 DeepSeek API Key：
 ```bash
 cp .env.example .env
 ```
-
-编辑 `.env`：
 
 ```
 DEEPSEEK_API_KEY=your_api_key_here
 ```
 
-### 3. 运行
-
-**前端页面（Streamlit UI）：**
-
+### 3. 运行 Web UI（默认）
 ```bash
-# 推荐：直接运行 main.py，会自动启动前端页面
+python main.py
+```
+
+- 若 `web/dist` 不存在，请先构建前端：
+```bash
+cd web
+npm install
+npm run build
+```
+
+- 开发模式：
+```bash
+# 终端 A：启动后端
 python main.py
 
-# 或者显式指定 UI 模式
-python main.py --ui
-
-# 也可以直接运行 Streamlit 入口
-streamlit run ui/app_streamlit.py
+# 终端 B：启动前端开发服务器
+cd web
+npm install
+npm run dev
 ```
 
-### Web UI (FastAPI + React)
+访问 `http://127.0.0.1:5173`。
 
+### 4. CLI 模式（可选）
 ```bash
-# Launch the new VSCode-style Web UI (default when no CLI input is provided)
-python main.py
-
-# Legacy Streamlit UI
-python main.py --ui streamlit
-
-# Frontend dev server
-cd web && npm install && npm run dev
-
-# Build frontend assets for FastAPI static hosting
-cd web && npm install && npm run build
-```
-
-**命令行模式：**
-
-```bash
-python main.py "为初中二年级设计'AI如何识别交通标志'PBL课程，45分钟"
-```
-
-**参数模式：**
-
-```bash
+python main.py --cli
+python main.py "为初中二年级设计 'AI如何识别交通标志' PBL课程，45分钟"
 python main.py --topic "图像识别" --grade "初中" --duration 45
 ```
 
-**保存结果到文件：**
-
+### 5. Legacy Streamlit UI（可选）
 ```bash
-python main.py "为初中设计'语音识别'PBL课程" -o output.json
+python main.py --ui streamlit
+# 或
+streamlit run ui/app_streamlit.py
 ```
+
+## Web UI 使用方式（简要）
+- 右侧先进行一次性问答（年级、时长、课堂模式、HITL、级联、主题、课堂背景），在输入框一次性回答
+- 左侧 Explorer 显示虚拟文件树（包含 `course_design.md`）
+- 中间 Markdown Viewer 支持预览和“编辑”回写，保存后自动级联
+- 右侧状态区提示“思考中…/完成/需要反馈”，可执行完成/反馈重生成
 
 ## 项目结构
-
 ```
 project/
-├── main.py                 # 入口文件
-├── config.py               # 配置管理
-├── requirements.txt        # 依赖清单
-│
-├── docs/design/            # 设计文档
-│   └── 001_initial_architecture.md
-│
-├── state/
-│   └── agent_state.py      # AgentState 定义
-│
-├── nodes/
-│   ├── reasoning_node.py   # 推理与规划节点
-│   └── action_node.py      # 执行节点
-│
-├── tools/
-│   ├── generate_scenario.py
-│   ├── generate_driving_question.py
-│   ├── generate_activity.py
-│   └── generate_experiment.py
-│
-├── prompts/
-│   ├── scenario.txt
-│   ├── driving_question.txt
-│   ├── activity.txt
-│   └── experiment.txt
-│
-├── knowledge/
-│   └── knowledge_base.json # 预置知识库
-│
-└── graph/
-    └── workflow.py         # LangGraph 工作流
+├─ main.py
+├─ server/           # FastAPI 后端与 Session 状态
+├─ web/              # React + Monaco + Markdown Viewer 前端
+├─ graph/            # LangGraph 工作流
+├─ nodes/            # 推理与动作节点
+├─ state/            # AgentState 定义
+├─ tools/            # 生成工具
+├─ prompts/          # Prompt 模板
+└─ knowledge/        # 预置知识库
 ```
 
-## 工作流
-
-```
-用户输入 → 推理节点 → 执行节点 → 课程输出
-              ↓           ↓
-         解析输入     调用工具
-         生成上下文   更新状态
-         匹配知识库   循环执行
-         规划动作
-```
-
-## 技术栈
-
-- **LangGraph**: Agent 状态管理与工作流编排
-- **LangChain**: LLM 调用与 Prompt 管理
-- **DeepSeek API**: 大语言模型服务
-
-## Design Docs
-
-设计文档记录了项目的架构演进：
-
-- [001_initial_architecture.md](docs/design/001_initial_architecture.md) - 初始架构设计
+## 设计文档
+- `docs/design/001_initial_architecture.md`
+- `docs/design/002_architecture.md`
 
 ## License
-
 MIT License

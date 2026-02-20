@@ -1,158 +1,146 @@
-# Design Doc 002: AI+PBL Agent 
+# Design Doc 002: AI+PBL Agent 架构（Web UI + FastAPI）
 
-**状态**: Draft
-**日期**: 2026-02-19
+**状态**: Implemented  
+**日期**: 2026-02-20  
 **作者**: AI+PBL Team
 
 ---
 
 ## 1. 背景与目标
+PBL（项目式学习）课程设计需要大量专业知识与结构化产出。本项目希望通过 Agent + HITL 机制，帮助教师快速生成并校验课程组件，同时提供可视化、可编辑的 Web UI，提升实际可用性与交付效率。
 
-### 1.1 问题陈述
-PBL（项目式学习）课程设计需要专业的教育学知识，教师往往需要大量时间才能设计出高质量的 PBL 课程方案。
-
-### 1.2 目标
-构建一个 AI Agent，能够根据用户输入（主题、年级、时长），自动生成完整的 PBL 课程方案，包括：
-- 教学场景
-- 驱动问题
-- 问题链
-- 活动设计
-- 实验设计
-
-### 1.3 MVP 范围
-- 轻量级实现，无 RAG 依赖
-- 通过结构化 Prompt + 预置知识库实现
-- 3 天内可交付可用原型
+目标：
+- 以 Web UI 为主入口，提供三栏（Explorer / Viewer / 状态与交互）体验
+- HITL 逐步确认，确保每个组件可控可追溯
+- 编辑上游内容时自动级联失效下游，保证一致性
+- 缺少 API Key 或 LLM 慢响应时，UI 有明确反馈
 
 ---
-2. 架构设计（更新）
-2.1 技术栈（小幅调整）
-模块	技术方案	说明
-Agent 编排	LangGraph	管理状态机 + HITL 循环
-LLM 调用	LangChain + DeepSeek API	支持多次生成 / 重生成
-上下文注入	结构化 Prompt + 预置 JSON 知识库	本地文件，零外部依赖
-交互方式	CLI（HITL）	逐组件 y/n 确认
-NEXT_COMPONENT   REGENERATE_COMPONENT
-                  ↓
-              PREVIEW_COMPONENT
 
-3.3 拒绝后的级联规则（默认行为）
+## 2. 总体架构
 
-拒绝当前组件 ⇒ 当前组件重生成
+```
+┌─────────────────────┐        ┌─────────────────────┐
+│  Web UI (React)     │  REST  │   FastAPI Server    │
+│  Explorer / Viewer  │ <----> │  Session + API       │
+│  Status / Actions   │        │  Virtual Files       │
+└─────────┬───────────┘        └─────────┬───────────┘
+          │                               │
+          │                               │
+          ▼                               ▼
+   Markdown Viewer                  LangGraph Workflow
+   (edit + save)                    (reasoning/action)
+```
 
-默认级联失效并重生成所有下游组件
+---
 
-可选：用户明确声明“只改当前，不动后面”
+## 3. 核心模块设计（已实现）
 
-4. 任意起点机制（新增章节）
-4.1 支持的起点
-起点	是否允许空输入	规则
-scenario	✅	模型可完全生成
-topic	✅	模型可生成
-activity	❌	必须提供 ≥1 句已有内容
-experiment	❌	必须提供 ≥1 句已有内容
-4.2 起点判定逻辑
-if start_from in [activity, experiment]:
-    if no user-provided content:
-        prompt user to fallback to full generation
+### 3.1 Web 前端（React + Vite）
+- 三栏布局：左侧 Explorer，中间 Markdown Viewer，右侧状态与交互
+- Markdown 渲染：`react-markdown` + `remark-gfm`（支持表格）
+- Viewer 编辑模式：点击“编辑”进入编辑态，保存后回写后端
+- 一次性问答：右侧在开始前通过输入框完成设置（年级/时长/课堂模式/HITL/级联/主题/背景）
+- Pending 信息栏：输入框上方展示当前待确认组件
+- 右侧仅显示状态/提示与操作按钮（完成 / 反馈重生成）
 
-5. 数据结构（更新）
-5.1 AgentState（新增 HITL / 起点字段）
-class AgentState(TypedDict):
-    # 用户输入
-    user_input: str
-    start_from: str                  # scenario | topic | activity | experiment
+### 3.2 FastAPI 服务
+- 提供 Session + Action + 文件回写 API：
+  - `POST /api/sessions`
+  - `GET /api/sessions/{session_id}`
+  - `POST /api/sessions/{session_id}/actions`
+  - `PUT /api/sessions/{session_id}/files`
+  - `GET /api/sessions/{session_id}/export`
+- 缺少 `DEEPSEEK_API_KEY` 时，返回清晰错误信息供前端展示
+- 生产环境：若存在 `web/dist`，直接挂载静态资源
+- 开发环境：启用 CORS 允许 `http://127.0.0.1:5173`
 
-    # 起点内容（可选）
-    provided_components: dict        # 用户提供的已有组件内容
+### 3.3 Session & 状态机
+- Session 以内存字典存储（`session_id -> {config, state}`）
+- `AgentState` 维护：
+  - `course_design`、`design_progress`、`component_validity`
+  - `await_user`、`pending_component`、`pending_preview`
+  - `locked_components`、`observations` 等
+- HITL 机制：
+  - `pending_component` 生成后进入待确认状态
+  - 接收 `accept / regenerate` 决策后继续推进
 
-    # 课程设计
-    course_design: dict              # 当前版本课程方案
-    locked_components: list          # 已确认（accepted）的组件
+### 3.4 虚拟文件模型
+- 课程组件映射为虚拟文件：
+  - `course/scenario.md`
+  - `course/driving_question.md`
+  - `course/question_chain.md`
+  - `course/activity.md`
+  - `course/experiment.md`
+  - `course/course_design.md`（整体结果预览）
+  - `course/course_design.json`（只读信息）
+- Debug 文件：
+  - `debug/context_summary.md`
+  - `debug/observations.log`
+  - `debug/action_inputs.json`
+- 状态规则（后端统一计算）：`pending / locked / invalid / valid / empty`
 
-    # 进度与有效性
-    design_progress: dict
-    component_validity: dict         # VALID / INVALID
+### 3.5 自动起点路由
+- `determine_start_from` 自动路由：
+  1) 若提供 seed 组件，优先使用（scenario / activity / experiment）
+  2) 明确标记（如 `scenario:`、`activity:` 或中文“已有场景”）优先
+  3) LLM 路由器判断（JSON 输出 `start_from`）
+  4) 回退到 `topic`
 
-    # 上下文
-    context_summary: str
-    knowledge_snippets: dict
+### 3.6 级联规则
+- 编辑/重生成上游组件会级联失效下游：
+  - `scenario` → `driving_question / question_chain / activity / experiment`
+  - `driving_question` → `question_chain / activity / experiment`
+  - `question_chain` → `activity / experiment`
+  - `activity` → `experiment`
+- 编辑回写会清空下游并标记 `INVALID`，确保一致性
 
-    # 规划
-    action_sequence: list
-    current_component: str
+### 3.7 错误与加载
+- LLM 调用失败或无 API Key 时，响应中带 `error` 字段
+- 前端显示“思考中…”动画与错误提示，避免白屏
 
-    # HITL
-    user_feedback: dict              # 针对某组件的修改意见
+### 3.8 静态资源与 CORS
+- `web/dist` 存在时由 FastAPI 直接托管 SPA
+- 本地开发使用 Vite + 代理，FastAPI 保留 CORS 兼容
 
-6. 核心节点设计（调整）
-6.1 推理节点（reasoning_node）
+---
 
-新增职责：
+## 4. 数据流
 
-校验 start_from 合法性
+1) **创建会话**
+   - 前端提交用户输入与设置
+   - 后端创建 Session 并生成首个组件（如有输入）
 
-合并用户提供的已有组件内容
+2) **HITL 操作**
+   - `accept`：确认当前组件并进入下一步
+   - `regenerate`：对目标组件反馈后重生成（默认级联）
 
-从指定起点规划 action_sequence
+3) **编辑回写**
+   - Viewer 保存触发 `PUT /files`
+   - 后端更新 `course_design` 并级联失效下游
 
-6.2 执行节点 → HITL Action Loop
+4) **导出**
+   - `GET /export` 返回完整课程设计 JSON
 
-原 action_node 升级为 可中断、可回退、可重生成的循环节点
+---
 
-职责：
+## 5. 实现清单（对照）
+- [x] FastAPI 后端与核心 API 完成
+- [x] Web UI 三栏布局与中文文案
+- [x] Markdown Viewer（含表格渲染）与编辑回写
+- [x] HITL 接受/重生成流程
+- [x] 自动起点路由（显式规则 + LLM）
+- [x] 级联失效机制
+- [x] 错误提示与加载状态
+- [x] 静态资源托管与 CORS
 
-针对 current_component 调用 generate_*
+---
 
-输出预览
-
-等待用户确认（y / n）
-
-n ⇒ 进入编辑反馈 + 重生成
-
-y ⇒ 锁定组件，进入下一个
-
-7. 工具集设计（原则不变，语义升级）
-
-每个 generate_* 工具必须满足：
-
-幂等性：同输入 + 不同 feedback ⇒ 可重生成
-
-可局部重跑：不依赖未来组件
-
-显式依赖声明：便于级联失效
-
-8. 端到端流程示例（更新）
-
-用户输入：
-
---start-from activity
-已有活动：学生分组观察路口交通标志并分类
-
-
-系统行为：
-
-校验起点合法（activity + 有内容）
-
-锁定 activity 初始版本
-
-从 activity → experiment 进入 HITL 循环
-
-用户拒绝 experiment
-
-仅重生成 experiment
-
-完成
-
-9. MVP 升级后的核心价值
-能力	说明
-HITL	人是 gate，不是 reviewer
-任意起点	真实贴合教师工作流
-可回退	每个组件都是 checkpoint
-工程可控	状态机清晰，易调试
-可演进	天然支持 Agent 化 / 多轮
-10. 后续演进（更新）
-
-新增方向：
-
-UI 化：CLI → Web 风格
+## 6. 关键文件
+- `server/app.py`
+- `server/state_ops.py`
+- `server/virtual_files.py`
+- `server/session_store.py`
+- `web/src/App.tsx`
+- `web/src/styles.css`
+- `main.py`
