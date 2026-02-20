@@ -252,6 +252,55 @@ textarea {
   gap: 16px;
 }
 
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #ffffff;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.chat-event {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  background: #f7f9fc;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+.chat-event.status {
+  border-left-color: var(--info);
+  background: rgba(47, 128, 237, 0.08);
+}
+
+.chat-event.nav {
+  border-left-color: var(--accent);
+  background: rgba(47, 128, 237, 0.12);
+}
+
+.chat-event.await {
+  border-left-color: var(--good);
+  background: rgba(47, 158, 111, 0.08);
+}
+
+.chat-event.error {
+  border-left-color: var(--danger);
+  background: rgba(214, 69, 69, 0.08);
+}
+
+.chat-event-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .settings {
   background: var(--panel-strong);
   border: 1px solid var(--border);
