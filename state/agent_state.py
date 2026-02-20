@@ -198,16 +198,7 @@ def is_design_complete(state: AgentState) -> bool:
     Returns:
         所有组件是否都已完成
     """
-    start_from = state.get("start_from", "topic")
     progress = state["design_progress"]
-
-    if start_from in ("topic", "scenario"):
-        required = ["scenario", "driving_question", "question_chain", "activity", "experiment"]
-    elif start_from == "activity":
-        required = ["activity", "experiment"]
-    elif start_from == "experiment":
-        required = ["experiment"]
-    else:
-        required = ["scenario", "driving_question", "question_chain", "activity", "experiment"]
+    required = ["scenario", "driving_question", "question_chain", "activity", "experiment"]
 
     return all(progress.get(k, False) for k in required)

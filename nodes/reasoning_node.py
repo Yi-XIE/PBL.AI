@@ -234,11 +234,17 @@ def plan_action_sequence(state: AgentState) -> List[str]:
     """
     progress = state.get("design_progress", {})
     validity = state.get("component_validity", {})
-    start_from = state.get("start_from", "topic")
-
-    components = get_component_order()[_start_index(start_from):]
+    components = get_component_order()
     actions: List[str] = []
     for comp in components:
+        if comp == "driving_question":
+            dq_invalid = validity.get("driving_question") == "INVALID"
+            qc_invalid = validity.get("question_chain") == "INVALID"
+            dq_missing = not progress.get("driving_question", False)
+            qc_missing = not progress.get("question_chain", False)
+            if dq_invalid or qc_invalid or dq_missing or qc_missing:
+                actions.append(comp)
+            continue
         if validity.get(comp) == "INVALID":
             actions.append(comp)
             continue

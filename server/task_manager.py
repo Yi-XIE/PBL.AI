@@ -16,10 +16,6 @@ STAGE_LABELS: Dict[str, str] = {
 
 
 def _required_stages(start_from: str) -> List[str]:
-    if start_from == "experiment":
-        return ["experiment"]
-    if start_from == "activity":
-        return ["activity", "experiment"]
     return ["scenario", "driving_question", "question_chain", "activity", "experiment"]
 
 

@@ -23,6 +23,8 @@ type Settings = {
   cascade_default: boolean;
   multi_option: boolean;
   request: string;
+  start_from: string;
+  seed_text: string;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -36,6 +38,8 @@ const DEFAULT_SETTINGS: Settings = {
   cascade_default: true,
   multi_option: true,
   request: "",
+  start_from: "topic",
+  seed_text: "",
 };
 
 const COURSE_ORDER = [
@@ -91,12 +95,6 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 function requiredStages(startFrom?: string): string[] {
-  if (startFrom === "experiment") {
-    return ["experiment"];
-  }
-  if (startFrom === "activity") {
-    return ["activity", "experiment"];
-  }
   return ["scenario", "driving_question", "question_chain", "activity", "experiment"];
 }
 
@@ -118,6 +116,31 @@ function buildTaskProgress(task: Task | null, stage: string): string {
   const index = stages.indexOf(stage);
   if (index < 0) return "";
   return `${index + 1} / ${stages.length}`;
+}
+
+function componentFromPath(path?: string | null): string | null {
+  if (!path) return null;
+  if (path.endsWith("scenario.md")) return "scenario";
+  if (path.endsWith("driving_question.md")) return "driving_question";
+  if (path.endsWith("question_chain.md")) return "question_chain";
+  if (path.endsWith("activity.md")) return "activity";
+  if (path.endsWith("experiment.md")) return "experiment";
+  return null;
+}
+
+function cascadeTargets(component: string): string[] {
+  switch (component) {
+    case "scenario":
+      return ["driving_question", "question_chain", "activity", "experiment"];
+    case "driving_question":
+      return ["question_chain", "activity", "experiment"];
+    case "question_chain":
+      return ["activity", "experiment"];
+    case "activity":
+      return ["experiment"];
+    default:
+      return [];
+  }
 }
 
 function deriveCurrentStage(state: AgentState | null): string {
@@ -192,11 +215,19 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
+  const [pendingSave, setPendingSave] = useState<{
+    path: string;
+    content: string;
+    component: string;
+    cascadeTargets: string[];
+  } | null>(null);
+  const [showSavePrompt, setShowSavePrompt] = useState(false);
   const [displayMarkdown, setDisplayMarkdown] = useState("");
   const [feedbackMode, setFeedbackMode] = useState(false);
   const [showSettingsDetails, setShowSettingsDetails] = useState(false);
   const [task, setTask] = useState<Task | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [localMessages, setLocalMessages] = useState<Message[]>([]);
 
   const lastPendingRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -242,6 +273,10 @@ export default function App() {
   }, [selectedPath, virtualFiles]);
 
   const renderedMarkdown = buildMarkdown(currentFile);
+  const combinedMessages = useMemo(() => {
+    const all = [...messages, ...localMessages];
+    return all.sort((a, b) => (a.created_at ?? 0) - (b.created_at ?? 0));
+  }, [messages, localMessages]);
 
   useEffect(() => {
     if (!inputRef.current) return;
@@ -298,7 +333,7 @@ export default function App() {
   useEffect(() => {
     if (!messagesEndRef.current) return;
     messagesEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages]);
+  }, [combinedMessages]);
 
   const applySession = (payload: SessionResponse) => {
     setState(payload.state);
@@ -339,8 +374,11 @@ export default function App() {
     setDisplayMarkdown("");
     setFeedbackMode(false);
     setShowSettingsDetails(false);
+    setPendingSave(null);
+    setShowSavePrompt(false);
     setTask(null);
     setMessages([]);
+    setLocalMessages([]);
     lastPendingRef.current = null;
     streamedRef.current.clear();
   };
@@ -348,6 +386,7 @@ export default function App() {
   const loadSession = async (id: string) => {
     setTask(null);
     setMessages([]);
+    setLocalMessages([]);
     try {
       const payload = await fetchJson<SessionResponse>(`/api/sessions/${id}`);
       setSessionId(payload.session_id);
@@ -360,6 +399,7 @@ export default function App() {
       setVirtualFiles(null);
       setTask(null);
       setMessages([]);
+      setLocalMessages([]);
       setError((err as Error).message);
     }
   };
@@ -373,6 +413,7 @@ export default function App() {
   const handleStart = async () => {
     setTask(null);
     setMessages([]);
+    setLocalMessages([]);
     setLoading(true);
     setError(null);
     try {
@@ -383,6 +424,16 @@ export default function App() {
           ? `${baseTopic}｜知识点：${knowledge}`
           : `知识点：${knowledge}`
         : baseTopic;
+      const startFrom = setupForm.start_from || "topic";
+      const seedText = setupForm.seed_text.trim();
+      const seed_components: Record<string, string> = {};
+      if (startFrom === "scenario" && seedText) {
+        seed_components.scenario = seedText;
+      } else if (startFrom === "activity" && seedText) {
+        seed_components.activity = seedText;
+      } else if (startFrom === "experiment" && seedText) {
+        seed_components.experiment = seedText;
+      }
       const payload = await fetchJson<SessionResponse>("/api/sessions", {
         method: "POST",
         body: JSON.stringify({
@@ -395,6 +446,8 @@ export default function App() {
           cascade_default: setupForm.cascade_default,
           multi_option: setupForm.multi_option,
           user_input: setupForm.request.trim(),
+          start_from: startFrom,
+          seed_components,
         }),
       });
       setSettings(setupForm);
@@ -409,7 +462,7 @@ export default function App() {
     }
   };
 
-  const handleAction = async (action: "accept" | "reset") => {
+  const handleAction = async (action: "accept" | "reset" | "continue") => {
     if (!sessionId) return;
     setLoading(true);
     setError(null);
@@ -436,20 +489,32 @@ export default function App() {
 
   const handleSendFeedback = async () => {
     if (!sessionId) return;
-    if (!feedbackText.trim()) return;
+    const trimmed = feedbackText.trim();
+    if (!trimmed) return;
+    const localMessage: Message = {
+      id: `local-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      type: "user",
+      message: trimmed,
+      created_at: Date.now() / 1000,
+    };
+    setLocalMessages((prev) => [...prev, localMessage]);
+    setFeedbackText("");
+    setFeedbackMode(false);
     setLoading(true);
     setError(null);
     try {
       const body: Record<string, unknown> = {
         action: "regenerate",
-        feedback: feedbackText.trim(),
+        feedback: trimmed,
       };
+      const targetComponent = componentFromPath(selectedPath);
+      if (targetComponent) {
+        body.target_component = targetComponent;
+      }
       const payload = await fetchJson<SessionResponse>(`/api/sessions/${sessionId}/actions`, {
         method: "POST",
         body: JSON.stringify(body),
       });
-      setFeedbackText("");
-      setFeedbackMode(false);
       applySession(payload);
     } catch (err) {
       setError((err as Error).message);
@@ -495,6 +560,41 @@ export default function App() {
     }
   };
 
+  const performSaveEdit = async (
+    path: string,
+    content: string,
+    cascade: boolean,
+    continueAfter: boolean
+  ) => {
+    if (!sessionId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const payload = await fetchJson<SessionResponse>(`/api/sessions/${sessionId}/files`, {
+        method: "PUT",
+        body: JSON.stringify({
+          path,
+          content,
+          cascade,
+          lock: true,
+        }),
+      });
+      setIsEditing(false);
+      applySession(payload);
+      if (continueAfter) {
+        const nextPayload = await fetchJson<SessionResponse>(`/api/sessions/${sessionId}/actions`, {
+          method: "POST",
+          body: JSON.stringify({ action: "continue" }),
+        });
+        applySession(nextPayload);
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSaveEdit = async () => {
     if (!sessionId || !selectedPath || !currentFile) return;
     if (!currentFile.editable) return;
@@ -502,25 +602,38 @@ export default function App() {
       setIsEditing(false);
       return;
     }
-    setLoading(true);
-    setError(null);
-    try {
-      const payload = await fetchJson<SessionResponse>(`/api/sessions/${sessionId}/files`, {
-        method: "PUT",
-        body: JSON.stringify({
-          path: selectedPath,
-          content: editValue,
-          cascade: false,
-          lock: true,
-        }),
+    const component = componentFromPath(selectedPath);
+    const targets = component ? cascadeTargets(component) : [];
+    if (component && targets.length > 0) {
+      setPendingSave({
+        path: selectedPath,
+        content: editValue,
+        component,
+        cascadeTargets: targets,
       });
-      setIsEditing(false);
-      applySession(payload);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
+      setShowSavePrompt(true);
+      return;
     }
+    await performSaveEdit(selectedPath, editValue, false, false);
+  };
+
+  const closeSavePrompt = () => {
+    setShowSavePrompt(false);
+    setPendingSave(null);
+  };
+
+  const handleSaveOnly = async () => {
+    if (!pendingSave) return;
+    const { path, content } = pendingSave;
+    closeSavePrompt();
+    await performSaveEdit(path, content, false, false);
+  };
+
+  const handleCascadeContinue = async () => {
+    if (!pendingSave) return;
+    const { path, content } = pendingSave;
+    closeSavePrompt();
+    await performSaveEdit(path, content, true, true);
   };
 
   const handleSelectFile = (path: string) => {
@@ -565,13 +678,19 @@ export default function App() {
     statusDetail = activeStage ? `当前阶段：${activeLabel}${stageSuffix}` : "等待下一步生成。";
   }
 
+  const showStatusBubble = Boolean(sessionId) && (loading || error || completed || awaitingUser || activeStage);
+  const statusClass = error ? "error" : "status";
+
   const feedbackPlaceholder = feedbackMode || awaitingUser
     ? "请输入修改意见，回车发送（Shift+Enter 换行）"
     : "可输入修改意见，回车发送";
 
-  const canStart =
-    !loading &&
-    (setupForm.topic.trim() || setupForm.knowledge_point.trim() || setupForm.request.trim());
+  const hasBaseInput = Boolean(
+    setupForm.topic.trim() || setupForm.knowledge_point.trim() || setupForm.request.trim()
+  );
+  const seedRequired = setupForm.start_from !== "topic";
+  const seedReady = !seedRequired || setupForm.seed_text.trim().length > 0;
+  const canStart = !loading && (seedRequired ? seedReady : hasBaseInput);
 
   return (
     <div className="app-shell">
@@ -757,6 +876,32 @@ export default function App() {
                       </select>
                     </label>
                     <label>
+                      Start From
+                      <select
+                        value={setupForm.start_from}
+                        onChange={(event) =>
+                          setSetupForm((prev) => ({ ...prev, start_from: event.target.value }))
+                        }
+                      >
+                        <option value="topic">topic</option>
+                        <option value="scenario">scenario</option>
+                        <option value="activity">activity</option>
+                        <option value="experiment">experiment</option>
+                      </select>
+                    </label>
+                    {setupForm.start_from !== "topic" && (
+                      <label className="full-span">
+                        Seed Content
+                        <textarea
+                          value={setupForm.seed_text}
+                          onChange={(event) =>
+                            setSetupForm((prev) => ({ ...prev, seed_text: event.target.value }))
+                          }
+                          placeholder="Paste existing content for the selected stage."
+                        />
+                      </label>
+                    )}
+                    <label>
                       主题
                       <input
                         value={setupForm.topic}
@@ -848,6 +993,8 @@ export default function App() {
                     {settings.hitl_enabled ? "开启" : "关闭"}｜级联{" "}
                     {settings.cascade_default ? "开启" : "关闭"}｜多方案{" "}
                     {settings.multi_option ? "开启" : "关闭"}
+                  <div>start_from: {settings.start_from || "topic"}</div>
+                  <div>seed: {settings.seed_text ? "(provided)" : "(empty)"}</div>
                   </div>
                   <button
                     className="button ghost tiny"
@@ -874,10 +1021,10 @@ export default function App() {
 
               {sessionId && (
                 <div className="chat-messages">
-                  {messages.length === 0 ? (
+                  {combinedMessages.length === 0 && !showCandidates && !showStatusBubble ? (
                     <div className="empty">暂无消息</div>
                   ) : (
-                    messages.map((event) => (
+                    combinedMessages.map((event) => (
                       <div key={event.id} className={`chat-event ${event.type}`}>
                         <div className="chat-event-text">{event.message}</div>
                       </div>
@@ -909,53 +1056,40 @@ export default function App() {
                 </div>
               )}
 
-              <div className="status-card">
-                <div className="status-title">状态</div>
-                {loading ? (
-                  <div className="thinking">
-                    智能体思考中
-                    <span className="dots">
-                      <span>.</span>
-                      <span>.</span>
-                      <span>.</span>
-                    </span>
-                  </div>
-                ) : (
-                  <div className="status-text">{statusHeadline}</div>
-                )}
-                <div className="status-detail">{statusDetail}</div>
-                {awaitingUser && !showCandidates && (
-                  <div className="status-actions">
-                    <button className="button primary" onClick={() => handleAction("accept")} disabled={loading}>
-                      接受
-                    </button>
-                    <button
-                      className="button"
-                      onClick={() => {
-                        setFeedbackMode(true);
-                        inputRef.current?.focus();
-                      }}
-                      disabled={loading}
-                    >
-                      拒绝
-                    </button>
-                  </div>
-                )}
-                {showCandidates && (
-                  <div className="status-actions">
-                    <button
-                      className="button"
-                      onClick={() => {
-                        setFeedbackMode(true);
-                        inputRef.current?.focus();
-                      }}
-                      disabled={loading}
-                    >
-                      修改
-                    </button>
-                  </div>
-                )}
-              </div>
+                            {showStatusBubble && (
+                <div className={`chat-event ${statusClass}`}>
+                  {loading ? (
+                    <div className="thinking">
+                      ??????
+                      <span className="dots">
+                        <span>.</span>
+                        <span>.</span>
+                        <span>.</span>
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="status-text">{statusHeadline}</div>
+                  )}
+                  <div className="status-detail">{statusDetail}</div>
+                  {awaitingUser && (
+                    <div className="chat-event-actions">
+                      <button className="button primary" onClick={() => handleAction("accept")} disabled={loading}>
+                        ??
+                      </button>
+                      <button
+                        className="button"
+                        onClick={() => {
+                          setFeedbackMode(true);
+                          inputRef.current?.focus();
+                        }}
+                        disabled={loading}
+                      >
+                        ??
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="chat-input">
@@ -991,6 +1125,30 @@ export default function App() {
           </div>
         </Panel>
       </PanelGroup>
+      {showSavePrompt && pendingSave && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <div className="modal-title">Save changes?</div>
+            <div className="modal-body">
+              <div>Component: {getStageLabel(pendingSave.component)}</div>
+              <div>
+                Downstream reset: {pendingSave.cascadeTargets.map(getStageLabel).join(", ")}
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="button" onClick={closeSavePrompt} disabled={loading}>
+                Cancel
+              </button>
+              <button className="button" onClick={handleSaveOnly} disabled={loading}>
+                Save Only
+              </button>
+              <button className="button primary" onClick={handleCascadeContinue} disabled={loading}>
+                Cascade + Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

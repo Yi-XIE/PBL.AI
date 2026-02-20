@@ -70,13 +70,7 @@ def _course_design_markdown(course_design: Dict[str, Any]) -> str:
 
 def _is_complete(state: Dict[str, Any]) -> bool:
     progress = state.get("design_progress", {}) or {}
-    start_from = state.get("start_from", "topic")
-    if start_from == "activity":
-        required = ["activity", "experiment"]
-    elif start_from == "experiment":
-        required = ["experiment"]
-    else:
-        required = ["scenario", "driving_question", "question_chain", "activity", "experiment"]
+    required = ["scenario", "driving_question", "question_chain", "activity", "experiment"]
     return all(progress.get(key) for key in required)
 
 
