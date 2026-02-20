@@ -10,7 +10,15 @@ import config
 from graph.workflow import run_workflow_step
 from state.agent_state import create_initial_state
 from server.models import ActionRequest, FileUpdateRequest, SessionCreateRequest, SessionResponse
-from server.session_store import create_session, get_session, update_config, update_state
+from server.session_store import (
+    create_session,
+    get_session,
+    increment_generation,
+    reset_generation,
+    update_config,
+    update_state,
+)
+from server.output_store import write_generation_snapshot
 from server.state_ops import apply_file_update, build_user_input, determine_start_from
 from server.virtual_files import build_virtual_files
 
@@ -91,6 +99,8 @@ def create_session_api(request: SessionCreateRequest) -> SessionResponse:
             try:
                 state = run_workflow_step(state)
                 update_state(session_id, state)
+                generation_index = increment_generation(session_id)
+                write_generation_snapshot(session_id, state, generation_index)
             except Exception as exc:  # pragma: no cover - surface to UI
                 error = str(exc)
 
@@ -138,6 +148,7 @@ def session_action_api(session_id: str, request: ActionRequest) -> SessionRespon
         state = _create_state_from_request(new_request)
         update_state(session_id, state)
         update_config(session_id, config_payload)
+        reset_generation(session_id)
         return _build_response(session_id, state)
     else:
         raise HTTPException(status_code=400, detail="Unknown action.")
@@ -147,6 +158,8 @@ def session_action_api(session_id: str, request: ActionRequest) -> SessionRespon
         try:
             state = run_workflow_step(state)
             update_state(session_id, state)
+            generation_index = increment_generation(session_id)
+            write_generation_snapshot(session_id, state, generation_index)
         except Exception as exc:  # pragma: no cover - surface to UI
             error = str(exc)
 

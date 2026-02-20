@@ -33,5 +33,5 @@ class ActionRequest(BaseModel):
 class FileUpdateRequest(BaseModel):
     path: str
     content: str
-    cascade: bool = True
+    cascade: bool = False
     lock: bool = True

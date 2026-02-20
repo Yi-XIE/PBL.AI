@@ -125,16 +125,26 @@ PBL（项目式学习）课程设计需要大量专业知识与结构化产出�
 
 ---
 
-## 8. 级联规则
+## 8. 输出归档
+每次生成完成后，后端会将当前课程组件写入 `output/` 目录：
+- 路径：`output/<session_id>/gen_XXX_YYYYMMDD_HHMMSS/`
+- 输出内容：`scenario.md`、`driving_question.md`、`question_chain.md`、`activity.md`、`experiment.md`、`course_design.md`
+
+---
+
+## 9. 级联规则
 上游组件变更（编辑或重生成）后下游失效：
 - `scenario` → `driving_question / question_chain / activity / experiment`
 - `driving_question` → `question_chain / activity / experiment`
 - `question_chain` → `activity / experiment`
 - `activity` → `experiment`
 
+说明：
+- 手动编辑 Markdown 文件默认不级联，下游由用户在反馈中授权重生成
+
 ---
 
-## 9. 自动起点路由
+## 10. 自动起点路由
 `determine_start_from` 规则：
 1) 若提供 seed 组件，优先使用  
 2) 明确标记（如 `scenario:` 或中文提示）优先  
@@ -143,7 +153,7 @@ PBL（项目式学习）课程设计需要大量专业知识与结构化产出�
 
 ---
 
-## 10. 启动方式
+## 11. 启动方式
 `main.py` 默认启动 Web UI：
 - `python main.py`：启动 FastAPI 并自动打开浏览器  
 - `python main.py --cli`：CLI 模式  
@@ -151,13 +161,13 @@ PBL（项目式学习）课程设计需要大量专业知识与结构化产出�
 
 ---
 
-## 11. 错误与可用性
+## 12. 错误与可用性
 - LLM 失败或无 API Key：返回 `error`，前端可见
 - 前端显示“思考中”动画
 
 ---
 
-## 12. 关键文件
+## 13. 关键文件
 - `server/app.py`
 - `server/models.py`
 - `server/session_store.py`

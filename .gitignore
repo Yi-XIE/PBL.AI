@@ -41,6 +41,7 @@ env/
 # Logs
 *.log
 logs/
+output/
 
 # Frontend
 web/node_modules/

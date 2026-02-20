@@ -144,6 +144,7 @@ export default function App() {
   const [editValue, setEditValue] = useState("");
   const [displayMarkdown, setDisplayMarkdown] = useState("");
   const [feedbackMode, setFeedbackMode] = useState(false);
+  const [showSettingsDetails, setShowSettingsDetails] = useState(false);
 
   const lastPendingRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -260,6 +261,26 @@ export default function App() {
     } else if (!selectedPath && payload.virtual_files?.selected_default) {
       setSelectedPath(payload.virtual_files.selected_default);
     }
+  };
+
+  const handleNewSession = () => {
+    localStorage.removeItem("session_id");
+    setSessionId(null);
+    setState(null);
+    setVirtualFiles(null);
+    setSelectedPath(null);
+    setSettings(DEFAULT_SETTINGS);
+    setSetupForm(DEFAULT_SETTINGS);
+    setFeedbackText("");
+    setError(null);
+    setLoading(false);
+    setIsEditing(false);
+    setEditValue("");
+    setDisplayMarkdown("");
+    setFeedbackMode(false);
+    setShowSettingsDetails(false);
+    lastPendingRef.current = null;
+    streamedRef.current.clear();
   };
 
   const loadSession = async (id: string) => {
@@ -383,35 +404,12 @@ export default function App() {
         body: JSON.stringify({
           path: selectedPath,
           content: editValue,
-          cascade: settings.cascade_default,
+          cascade: false,
           lock: true,
         }),
       });
       setIsEditing(false);
       applySession(payload);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleExport = async () => {
-    if (!sessionId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`/api/sessions/${sessionId}/export`);
-      if (!response.ok) {
-        throw new Error(response.statusText);
-      }
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = "course_design.json";
-      anchor.click();
-      window.URL.revokeObjectURL(url);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -471,7 +469,12 @@ export default function App() {
         </div>
         <div className="meta">
           {sessionId ? (
-            <span>会话 {sessionId.slice(0, 8)}</span>
+            <>
+              <button className="button ghost tiny" onClick={handleNewSession}>
+                重置任务
+              </button>
+              <span>会话 {sessionId.slice(0, 8)}</span>
+            </>
           ) : (
             <span>未开始</span>
           )}
@@ -722,18 +725,25 @@ export default function App() {
                     {settings.hitl_enabled ? "开启" : "关闭"}｜级联{" "}
                     {settings.cascade_default ? "开启" : "关闭"}
                   </div>
-                  <div className="settings-actions">
-                    <button className="button" onClick={handleExport} disabled={!sessionId || loading}>
-                      下载 JSON
-                    </button>
-                    <button
-                      className="button ghost"
-                      onClick={() => handleAction("reset")}
-                      disabled={!sessionId || loading}
-                    >
-                      重置
-                    </button>
-                  </div>
+                  <button
+                    className="button ghost tiny"
+                    onClick={() => setShowSettingsDetails((prev) => !prev)}
+                  >
+                    {showSettingsDetails ? "收起" : "展开"}
+                  </button>
+                </div>
+              )}
+              {sessionId && showSettingsDetails && (
+                <div className="settings-detail">
+                  <div>年级：{settings.grade_level || "未指定"}</div>
+                  <div>时长：{settings.duration} 分钟</div>
+                  <div>模式：{MODE_LABELS[settings.classroom_mode] || settings.classroom_mode}</div>
+                  <div>主题：{settings.topic || "未指定"}</div>
+                  <div>知识点：{settings.knowledge_point || "未指定"}</div>
+                  <div>课堂背景：{settings.classroom_context || "未指定"}</div>
+                  <div>需求描述：{settings.request || "未指定"}</div>
+                  <div>确认：{settings.hitl_enabled ? "开启" : "关闭"}</div>
+                  <div>级联：{settings.cascade_default ? "开启" : "关闭"}</div>
                 </div>
               )}
 

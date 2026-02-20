@@ -90,6 +90,9 @@ textarea {
 .meta {
   color: var(--muted);
   font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .panel-group {
@@ -354,6 +357,11 @@ textarea {
   color: var(--muted);
 }
 
+.button.tiny {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
 .button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -555,9 +563,18 @@ textarea {
   text-overflow: ellipsis;
 }
 
-.settings.compact .settings-actions {
-  margin-top: 0;
-  flex-shrink: 0;
+.settings-detail {
+  margin-top: -6px;
+  margin-bottom: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #ffffff;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .status-actions {
@@ -594,5 +611,8 @@ textarea {
   }
   .markdown-edit {
     padding: 18px 20px 30px;
+  }
+  .settings-detail {
+    grid-template-columns: 1fr;
   }
 }
