@@ -37,6 +37,35 @@ DEEPSEEK_API_KEY=your_api_key_here
 
 ### 3. 运行
 
+**前端页面（Streamlit UI）：**
+
+```bash
+# 推荐：直接运行 main.py，会自动启动前端页面
+python main.py
+
+# 或者显式指定 UI 模式
+python main.py --ui
+
+# 也可以直接运行 Streamlit 入口
+streamlit run ui/app_streamlit.py
+```
+
+### Web UI (FastAPI + React)
+
+```bash
+# Launch the new VSCode-style Web UI (default when no CLI input is provided)
+python main.py
+
+# Legacy Streamlit UI
+python main.py --ui streamlit
+
+# Frontend dev server
+cd web && npm install && npm run dev
+
+# Build frontend assets for FastAPI static hosting
+cd web && npm install && npm run build
+```
+
 **命令行模式：**
 
 ```bash

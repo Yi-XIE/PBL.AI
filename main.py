@@ -9,7 +9,10 @@ Usage:
 import argparse
 import json
 import os
+import subprocess
 import sys
+import threading
+import webbrowser
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -21,6 +24,19 @@ from state.agent_state import create_initial_state, is_design_complete
 def parse_args():
     parser = argparse.ArgumentParser(
         description="AI+PBL Agent - Generate PBL course design"
+    )
+    entry_mode = parser.add_mutually_exclusive_group()
+    entry_mode.add_argument(
+        "--ui",
+        nargs="?",
+        const="web",
+        choices=["web", "streamlit"],
+        help="Launch UI (default: web). Use --ui streamlit for legacy UI.",
+    )
+    entry_mode.add_argument(
+        "--cli",
+        action="store_true",
+        help="Force CLI mode (prompt in terminal if no input is provided)",
     )
     parser.add_argument(
         "input",
@@ -91,6 +107,37 @@ def parse_args():
         help="Quiet mode",
     )
     return parser.parse_args()
+
+
+def launch_streamlit_ui() -> None:
+    ui_entry = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "ui",
+        "app_streamlit.py",
+    )
+    if not os.path.exists(ui_entry):
+        raise FileNotFoundError(f"Streamlit UI entry not found: {ui_entry}")
+
+    cmd = [sys.executable, "-m", "streamlit", "run", ui_entry]
+    raise SystemExit(subprocess.call(cmd))
+
+
+def launch_web_ui() -> None:
+    from server.app import app
+    import uvicorn
+
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    dist_dir = os.path.join(base_dir, "web", "dist")
+    if not os.path.isdir(dist_dir):
+        print("[WARN] web/dist not found. Build the UI with:")
+        print("       cd web && npm install && npm run build")
+        print("       or run the dev server: npm run dev")
+
+    host = "127.0.0.1"
+    port = 8000
+    url = f"http://{host}:{port}"
+    threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+    raise SystemExit(uvicorn.run(app, host=host, port=port, log_level="info"))
 
 
 def save_result(state: dict, output_path: str) -> None:
@@ -183,10 +230,23 @@ def render_preview(state: dict) -> None:
 def main():
     args = parse_args()
 
+    # For double-click / `python main.py` convenience:
+    # If the user didn't provide any generation input, launch the UI by default.
+    has_generation_input = bool(args.input) or bool(args.topic)
+    if args.ui or (not args.cli and not has_generation_input):
+        if args.ui == "streamlit":
+            launch_streamlit_ui()
+        else:
+            launch_web_ui()
+
     if args.input:
         user_input = args.input
     elif args.topic:
-        user_input = f"为{args.grade or '初中'}设计'{args.topic}'PBL课程，{args.duration}分钟"
+        grade_label = args.grade or "middle school"
+        user_input = (
+            f"Design a PBL course on '{args.topic}' for grade {grade_label}, "
+            f"{args.duration} minutes."
+        )
     else:
         print("AI+PBL Agent - PBL Course Generator")
         print("-" * 50)
