@@ -252,7 +252,6 @@ def trigger_tool_api(session_id: str, request: ToolRequest) -> SessionResponse:
     session = _require_session(session_id)
     state = session["state"]
     tool_name = request.tool
-    messages = session.get("messages", [])
     additions = [
         {
             "id": uuid4().hex,
@@ -270,6 +269,7 @@ def trigger_tool_api(session_id: str, request: ToolRequest) -> SessionResponse:
         },
     ]
     append_messages(session_id, additions)
+    _sync_task_and_messages(session_id, state, "tool_trigger")
     return _build_response(session_id, state)
 
 

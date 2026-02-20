@@ -122,7 +122,7 @@ def hitl_loop_node(state: AgentState) -> Dict[str, Any]:
         }
 
     # 如果有用户决策，先应用
-    if hitl_enabled and await_user and user_decision:
+    if await_user and user_decision:
         current = pending_component or state.get("current_component") or ""
         if user_decision in ("accept", "select_candidate"):
             if pending_candidates and selected_candidate_id:
@@ -138,9 +138,30 @@ def hitl_loop_node(state: AgentState) -> Dict[str, Any]:
                         design_progress,
                         component_validity,
                     )
-            if current and current not in locked_components:
-                locked_components.append(current)
-            component_validity[current] = "VALID"
+            if user_decision == "accept" or not hitl_enabled:
+                if current and current not in locked_components:
+                    locked_components.append(current)
+                component_validity[current] = "VALID"
+            else:
+                # 选择候选方案后仍需用户确认
+                await_user = True
+                pending_component = current
+                pending_preview = _build_preview(current, course_design)
+                user_decision = None
+                feedback_target = None
+                return {
+                    "course_design": course_design,
+                    "design_progress": design_progress,
+                    "component_validity": component_validity,
+                    "locked_components": locked_components,
+                    "observations": observations,
+                    "action_inputs": action_inputs,
+                    "await_user": await_user,
+                    "pending_component": pending_component,
+                    "pending_preview": pending_preview,
+                    "pending_candidates": pending_candidates,
+                    "selected_candidate_id": selected_candidate_id,
+                }
         elif user_decision == "regenerate":
             target = feedback_target or current
             feedback = _get_feedback(state, target)

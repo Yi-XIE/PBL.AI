@@ -25,6 +25,25 @@ def _parse_json(text: str) -> Dict[str, Any]:
     return {}
 
 
+def _derive_stage_status(task: Dict[str, Any], state: Dict[str, Any]) -> str:
+    stage = task.get("current_stage", "")
+    if task.get("status") == "completed":
+        return "completed"
+    if state.get("await_user"):
+        return "pending"
+    if not stage:
+        return "empty"
+    validity = (state.get("component_validity") or {}).get(stage)
+    if validity == "INVALID":
+        return "invalid"
+    if validity == "EMPTY":
+        return "empty"
+    if validity == "VALID":
+        return "completed"
+    progress = (state.get("design_progress") or {}).get(stage)
+    return "completed" if progress else "in_progress"
+
+
 def _fallback_decision(task: Dict[str, Any], state: Dict[str, Any], user_action: str) -> Dict[str, str]:
     current_stage = task.get("current_stage", "")
     label = stage_label(current_stage)
@@ -60,6 +79,8 @@ def decide_next(task: Dict[str, Any], state: Dict[str, Any], user_action: str) -
 
     try:
         llm = get_llm(temperature=0.2)
+        stage_status = _derive_stage_status(task, state)
+        component_validity = state.get("component_validity", {})
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
@@ -72,7 +93,9 @@ def decide_next(task: Dict[str, Any], state: Dict[str, Any], user_action: str) -
                     "user",
                     "Task: {task}\n"
                     "Current stage: {current_stage}\n"
+                    "Stage status: {stage_status}\n"
                     "Completed stages: {completed_stages}\n"
+                    "Component validity: {component_validity}\n"
                     "User action: {user_action}\n"
                     "Await user: {await_user}\n",
                 ),
@@ -82,7 +105,9 @@ def decide_next(task: Dict[str, Any], state: Dict[str, Any], user_action: str) -
             {
                 "task": json.dumps(task, ensure_ascii=False),
                 "current_stage": task.get("current_stage", ""),
+                "stage_status": stage_status,
                 "completed_stages": ",".join(task.get("completed_stages", [])),
+                "component_validity": json.dumps(component_validity, ensure_ascii=False),
                 "user_action": user_action,
                 "await_user": str(state.get("await_user", False)),
             }
