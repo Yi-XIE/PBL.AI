@@ -28,7 +28,16 @@ const DEFAULT_SETTINGS: Settings = {
   request: "",
 };
 
-const COMPONENTS = ["scenario", "driving_question", "question_chain", "activity", "experiment"];
+const COURSE_ORDER = [
+  "course/course_design.md",
+  "course/scenario.md",
+  "course/driving_question.md",
+  "course/question_chain.md",
+  "course/activity.md",
+  "course/experiment.md",
+];
+
+const COMPONENT_ORDER = COURSE_ORDER.filter((path) => path !== "course/course_design.md");
 
 const COMPONENT_LABELS: Record<string, string> = {
   scenario: "情境",
@@ -36,6 +45,15 @@ const COMPONENT_LABELS: Record<string, string> = {
   question_chain: "问题链",
   activity: "活动",
   experiment: "实验",
+};
+
+const FILE_LABELS: Record<string, string> = {
+  "course/course_design.md": "课程总览",
+  "course/scenario.md": "情景",
+  "course/driving_question.md": "驱动问题",
+  "course/question_chain.md": "问题链",
+  "course/activity.md": "活动",
+  "course/experiment.md": "实验",
 };
 
 const MODE_LABELS: Record<string, string> = {
@@ -106,6 +124,10 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json();
 }
 
+function displayFileName(file: VirtualFile) {
+  return FILE_LABELS[file.path] || file.path.split("/").pop() || file.path;
+}
+
 export default function App() {
   const [sessionId, setSessionId] = useState<string | null>(() => {
     return localStorage.getItem("session_id");
@@ -116,7 +138,6 @@ export default function App() {
   const [virtualFiles, setVirtualFiles] = useState<VirtualFilesPayload | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [feedbackText, setFeedbackText] = useState("");
-  const [regenTarget, setRegenTarget] = useState("pending");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -127,23 +148,31 @@ export default function App() {
   const lastPendingRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const editRef = useRef<HTMLTextAreaElement | null>(null);
+  const streamedRef = useRef<Set<string>>(new Set());
 
   const { courseDesignFile, courseSections, debugFiles } = useMemo(() => {
     const files = virtualFiles?.files || [];
-    const courseFiles = files.filter((file) => file.path.startsWith("course/"));
+    const courseFiles = files.filter(
+      (file) =>
+        file.path.startsWith("course/") &&
+        file.path !== "course/course_design.json"
+    );
     const debug = files.filter((file) => file.path.startsWith("debug/"));
     const courseDesign = courseFiles.find((file) => file.path === "course/course_design.md") || null;
-    const rest = courseFiles.filter((file) => file.path !== "course/course_design.md");
+    const orderMap = new Map(COMPONENT_ORDER.map((path, index) => [path, index]));
+    const componentFiles = courseFiles.filter((file) => orderMap.has(file.path));
+    const sortByOrder = (a: VirtualFile, b: VirtualFile) =>
+      (orderMap.get(a.path) ?? 999) - (orderMap.get(b.path) ?? 999);
 
-    const completed = rest
-      .filter((file) => ["valid", "locked", "info"].includes(file.status))
-      .sort((a, b) => a.path.localeCompare(b.path));
-    const inProgress = rest
+    const completed = componentFiles
+      .filter((file) => ["valid", "locked"].includes(file.status))
+      .sort(sortByOrder);
+    const inProgress = componentFiles
       .filter((file) => file.status === "pending")
-      .sort((a, b) => a.path.localeCompare(b.path));
-    const notStarted = rest
+      .sort(sortByOrder);
+    const notStarted = componentFiles
       .filter((file) => ["empty", "invalid"].includes(file.status))
-      .sort((a, b) => a.path.localeCompare(b.path));
+      .sort(sortByOrder);
 
     return {
       courseDesignFile: courseDesign,
@@ -185,6 +214,12 @@ export default function App() {
       setDisplayMarkdown(renderedMarkdown);
       return;
     }
+    const key = currentFile.path;
+    if (streamedRef.current.has(key)) {
+      setDisplayMarkdown(renderedMarkdown);
+      return;
+    }
+    streamedRef.current.add(key);
     const content = renderedMarkdown;
     if (!content || content.length < 80) {
       setDisplayMarkdown(content);
@@ -321,9 +356,6 @@ export default function App() {
         action: "regenerate",
         feedback: feedbackText.trim(),
       };
-      if (regenTarget !== "pending") {
-        body.target_component = regenTarget;
-      }
       const payload = await fetchJson<SessionResponse>(`/api/sessions/${sessionId}/actions`, {
         method: "POST",
         body: JSON.stringify(body),
@@ -408,7 +440,7 @@ export default function App() {
   let statusHeadline = "准备就绪";
   let statusDetail = "请在上方填写设置并开始生成。";
   if (loading) {
-    statusHeadline = "Agent 思考中";
+    statusHeadline = "智能体思考中";
     statusDetail = "正在处理下一步...";
   } else if (error) {
     statusHeadline = "错误";
@@ -465,7 +497,7 @@ export default function App() {
                       className={`file-item ${selectedPath === courseDesignFile.path ? "active" : ""}`}
                       onClick={() => handleSelectFile(courseDesignFile.path)}
                     >
-                      <span className="file-name">{courseDesignFile.path.split("/").pop()}</span>
+                      <span className="file-name">{displayFileName(courseDesignFile)}</span>
                       <span className="file-status">{STATUS_LABELS[courseDesignFile.status] || "信息"}</span>
                     </button>
                   ) : (
@@ -489,7 +521,7 @@ export default function App() {
                         >
                           <span className="file-name">
                             {file.status === "pending" && <span className="status-dot" />}
-                            {file.path.split("/").pop()}
+                            {displayFileName(file)}
                           </span>
                           <span
                             className="file-status"
@@ -700,15 +732,12 @@ export default function App() {
                 </div>
               ) : (
                 <div className="settings compact">
-                  <div className="settings-title">会话设置</div>
-                  <div className="settings-summary">
-                    <div>年级：{settings.grade_level || "未指定"}</div>
-                    <div>时长：{settings.duration} 分钟</div>
-                    <div>模式：{MODE_LABELS[settings.classroom_mode] || settings.classroom_mode}</div>
-                    <div>主题：{settings.topic || "未指定"}</div>
-                    <div>知识点：{settings.knowledge_point || "未指定"}</div>
-                    <div>确认：{settings.hitl_enabled ? "开启" : "关闭"}</div>
-                    <div>级联：{settings.cascade_default ? "开启" : "关闭"}</div>
+                  <div className="settings-line">
+                    会话设置：年级 {settings.grade_level || "未指定"}｜时长 {settings.duration} 分钟｜模式{" "}
+                    {MODE_LABELS[settings.classroom_mode] || settings.classroom_mode}｜主题{" "}
+                    {settings.topic || "未指定"}｜知识点 {settings.knowledge_point || "未指定"}｜确认{" "}
+                    {settings.hitl_enabled ? "开启" : "关闭"}｜级联{" "}
+                    {settings.cascade_default ? "开启" : "关闭"}
                   </div>
                   <div className="settings-actions">
                     <button className="button" onClick={handleExport} disabled={!sessionId || loading}>
@@ -729,7 +758,7 @@ export default function App() {
                 <div className="status-title">状态</div>
                 {loading ? (
                   <div className="thinking">
-                    Agent 思考中
+                    智能体思考中
                     <span className="dots">
                       <span>.</span>
                       <span>.</span>
@@ -761,22 +790,6 @@ export default function App() {
             </div>
 
             <div className="chat-input">
-              {sessionId && (
-                <div className="pending-bar">
-                  <span>当前阶段：{pendingLabel}</span>
-                  <select
-                    value={regenTarget}
-                    onChange={(event) => setRegenTarget(event.target.value)}
-                  >
-                    <option value="pending">当前</option>
-                    {COMPONENTS.map((component) => (
-                      <option key={component} value={component}>
-                        {COMPONENT_LABELS[component] || component}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
               <textarea
                 ref={inputRef}
                 rows={4}
@@ -793,15 +806,6 @@ export default function App() {
                 }}
                 disabled={!sessionId}
               />
-              <div className="chat-actions">
-                <button
-                  className="button primary"
-                  onClick={handleSendFeedback}
-                  disabled={!sessionId || loading || !feedbackText.trim()}
-                >
-                  发送
-                </button>
-              </div>
               {error && !loading && <div className="error">{error}</div>}
             </div>
           </div>
