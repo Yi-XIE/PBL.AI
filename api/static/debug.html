@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>PBL Studio V4 Copilot Debug</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@400;600&family=Bricolage+Grotesque:wght@300;400;600;700&family=Fraunces:wght@600;700&display=swap");
+
+      :root {
+        --bg: #f4f6fb;
+        --panel: rgba(255, 255, 255, 0.92);
+        --panel-2: rgba(248, 250, 255, 0.98);
+        --border: rgba(15, 23, 42, 0.12);
+        --text: #111827;
+        --muted: #6b7280;
+        --accent: #2dd4bf;
+        --accent-2: #7c3aed;
+        --warn: #ef4444;
+        --shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+        --bg-spot-1: rgba(45, 212, 191, 0.12);
+        --bg-spot-2: rgba(124, 58, 237, 0.1);
+        --bg-spot-3: rgba(56, 189, 248, 0.12);
+        --grid-line: rgba(15, 23, 42, 0.04);
+        --font-body: "Bricolage Grotesque", system-ui, sans-serif;
+        --font-display: "Fraunces", serif;
+        --font-mono: "Azeret Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+
+      body[data-theme="dark"] {
+        --bg: #0b0f16;
+        --panel: rgba(16, 22, 34, 0.92);
+        --panel-2: rgba(11, 16, 26, 0.92);
+        --border: rgba(255, 255, 255, 0.08);
+        --text: #eef3ff;
+        --muted: #98a2b3;
+        --accent: #67f2d0;
+        --accent-2: #f186ff;
+        --warn: #ff8b7a;
+        --shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+        --bg-spot-1: rgba(103, 242, 208, 0.08);
+        --bg-spot-2: rgba(241, 134, 255, 0.08);
+        --bg-spot-3: rgba(86, 119, 255, 0.08);
+        --grid-line: rgba(255, 255, 255, 0.02);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: var(--font-body);
+        background: radial-gradient(1200px 800px at 10% 10%, var(--bg-spot-1), transparent 60%),
+          radial-gradient(900px 600px at 90% 0%, var(--bg-spot-2), transparent 55%),
+          radial-gradient(900px 700px at 50% 100%, var(--bg-spot-3), transparent 60%),
+          var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
+          linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+        background-size: 32px 32px;
+        pointer-events: none;
+        opacity: 0.15;
+      }
+
+      .app {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        min-height: 100vh;
+        padding: 20px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 14px 18px;
+        border-radius: 18px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(18px);
+      }
+
+      .brand {
+        font-family: var(--font-display);
+        font-size: 22px;
+        letter-spacing: 0.5px;
+      }
+
+      .status {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .theme-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--border);
+        background: rgba(15, 23, 42, 0.05);
+        color: var(--text);
+        font-size: 12px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+
+      .theme-toggle svg {
+        width: 16px;
+        height: 16px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1.1fr 1fr 1.2fr;
+        gap: 16px;
+        flex: 1;
+        min-height: 0;
+      }
+
+      .panel {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-height: 0;
+        padding: 16px;
+        border-radius: 18px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(18px);
+      }
+
+      .panel-header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .panel-header h2 {
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: 16px;
+      }
+
+      .subtle {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .chat-log {
+        flex: 1;
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding-right: 4px;
+      }
+
+      .message {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-width: 90%;
+        align-self: flex-start;
+        align-items: flex-start;
+      }
+
+      .message.user {
+        align-self: flex-start;
+      }
+
+      .message.assistant {
+        align-self: flex-start;
+      }
+
+      .message.system {
+        align-self: flex-start;
+        max-width: 100%;
+      }
+
+      .message .meta {
+        font-size: 11px;
+        color: var(--muted);
+        letter-spacing: 0.6px;
+        text-transform: uppercase;
+      }
+
+      .message .bubble {
+        padding: 10px 12px;
+        border-radius: 14px;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        background: rgba(255, 255, 255, 0.85);
+        line-height: 1.5;
+        white-space: pre-wrap;
+      }
+
+      .message.user .bubble {
+        background: rgba(45, 212, 191, 0.14);
+        border-color: rgba(45, 212, 191, 0.4);
+      }
+
+      .message.assistant .bubble {
+        background: rgba(124, 58, 237, 0.12);
+        border-color: rgba(124, 58, 237, 0.28);
+      }
+
+      .message.system .bubble {
+        background: rgba(15, 23, 42, 0.04);
+        border-color: rgba(15, 23, 42, 0.12);
+        font-size: 12px;
+      }
+
+      .composer {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .input-wrap {
+        position: relative;
+      }
+
+      #chatInput {
+        width: 100%;
+        min-height: 90px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: #ffffff;
+        color: var(--text);
+        padding: 12px 78px 42px 12px;
+        font-family: var(--font-body);
+        font-size: 13px;
+        resize: vertical;
+      }
+
+      .send-btn {
+        position: absolute;
+        right: 10px;
+        bottom: 10px;
+        width: 40px;
+        height: 40px;
+        padding: 0;
+        border-radius: 12px;
+        display: grid;
+        place-items: center;
+        border: none;
+        background: transparent;
+        color: var(--text);
+      }
+
+      .send-btn svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      button {
+        border: 1px solid var(--border);
+        background: rgba(15, 23, 42, 0.05);
+        color: var(--text);
+        font-size: 12px;
+        padding: 8px 12px;
+        border-radius: 12px;
+        cursor: pointer;
+        transition: transform 0.15s ease, border-color 0.2s ease, background 0.2s ease;
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+        border-color: rgba(15, 23, 42, 0.2);
+        background: rgba(15, 23, 42, 0.08);
+      }
+
+      button.primary {
+        background: transparent;
+        border-color: transparent;
+      }
+
+      .send-btn:hover {
+        transform: none;
+        background: transparent;
+        border-color: transparent;
+        opacity: 1;
+      }
+
+
+      button.ghost {
+        background: transparent;
+      }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .hint {
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .stage-track {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .stage-pill {
+        padding: 4px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        border: 1px solid var(--border);
+        color: var(--muted);
+      }
+
+      .stage-pill.active {
+        color: var(--text);
+        border-color: rgba(45, 212, 191, 0.5);
+        background: rgba(45, 212, 191, 0.12);
+      }
+
+      .stage-pill.done {
+        color: var(--text);
+        border-color: rgba(255, 255, 255, 0.25);
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .candidate-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        overflow: auto;
+        padding-right: 4px;
+      }
+
+      .candidate-card {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        cursor: pointer;
+        background: rgba(255, 255, 255, 0.7);
+        transition: border-color 0.2s ease, background 0.2s ease;
+      }
+
+      .candidate-card:hover {
+        border-color: rgba(15, 23, 42, 0.2);
+        background: rgba(255, 255, 255, 0.9);
+      }
+
+      .candidate-card.selected {
+        border-color: rgba(45, 212, 191, 0.6);
+        background: rgba(45, 212, 191, 0.12);
+      }
+
+      .candidate-card .title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 600;
+      }
+
+      .candidate-card .tag {
+        font-size: 11px;
+        border-radius: 8px;
+        padding: 2px 6px;
+        background: rgba(15, 23, 42, 0.06);
+        border: 1px solid rgba(15, 23, 42, 0.12);
+        font-family: var(--font-mono);
+      }
+
+      .candidate-card .preview {
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.4;
+      }
+
+      .candidate-card .meta {
+        font-size: 11px;
+        color: var(--muted);
+        display: flex;
+        gap: 8px;
+      }
+
+      .candidate-card .actions {
+        display: flex;
+        gap: 6px;
+      }
+
+      .detail-box {
+        flex: 1;
+        overflow: auto;
+        padding-right: 4px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      details {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 10px 12px;
+        background: rgba(255, 255, 255, 0.8);
+      }
+
+      details summary {
+        cursor: pointer;
+        font-weight: 600;
+      }
+
+      .section-body {
+        margin-top: 8px;
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.5;
+        white-space: pre-wrap;
+      }
+
+      .code {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        background: rgba(15, 23, 42, 0.06);
+        padding: 8px;
+        border-radius: 10px;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        overflow-x: auto;
+      }
+
+      .conflicts {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .conflict-card {
+        border: 1px solid rgba(239, 68, 68, 0.35);
+        background: rgba(239, 68, 68, 0.08);
+        padding: 10px 12px;
+        border-radius: 12px;
+        font-size: 12px;
+        color: var(--text);
+      }
+
+      .conflict-card .meta {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .conflict-actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 8px;
+        flex-wrap: wrap;
+      }
+
+      .decision-box {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 10px 12px;
+        font-size: 12px;
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.8);
+      }
+
+      @media (max-width: 1200px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">PBL Studio V4 — Copilot Console</div>
+        <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle theme">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <circle cx="12" cy="12" r="4"></circle>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
+          </svg>
+          <span id="themeLabel">Light</span>
+        </button>
+      </header>
+
+      <main class="grid">
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Chat</h2>
+            <div class="subtle">LLM decides entry point · all notifications here</div>
+          </div>
+          <div id="chatLog" class="chat-log"></div>
+          <div class="composer">
+            <div class="input-wrap">
+              <textarea
+                id="chatInput"
+                placeholder="Describe your goal. Example: 我想用 Orange 做 KNN 分类教学，时长 80 分钟。"></textarea>
+              <button id="sendBtn" class="primary send-btn" aria-label="Send">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <path d="M3 11l18-8-8 18-2-7-7-3z"></path>
+                </svg>
+              </button>
+            </div>
+            <div class="hint">Commands: /select A</div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Candidates</h2>
+            <div class="subtle" id="stageStatusLabel">No task yet</div>
+          </div>
+          <div class="stage-track" id="stageTrack"></div>
+          <div id="candidateList" class="candidate-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Course Plan</h2>
+            <div class="subtle" id="planMeta">Assembled from selected candidates</div>
+          </div>
+          <div id="planBox" class="detail-box"></div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const themeToggle = document.getElementById("themeToggle");
+      const stageStatusLabel = document.getElementById("stageStatusLabel");
+      const stageTrack = document.getElementById("stageTrack");
+      const chatLog = document.getElementById("chatLog");
+      const chatInput = document.getElementById("chatInput");
+      const sendBtn = document.getElementById("sendBtn");
+      const candidateList = document.getElementById("candidateList");
+      const planBox = document.getElementById("planBox");
+      const planMeta = document.getElementById("planMeta");
+      const STAGES = ["scenario", "driving_question", "question_chain", "activity", "experiment"];
+
+      let sessionId = null;
+      let taskId = null;
+      let task = null;
+      let currentStage = null;
+      let artifacts = {};
+      let selectedCandidateId = null;
+      let eventSource = null;
+      let renderedMessageCount = 0;
+      let currentPlan = null;
+
+      function addChatMessage(role, text, stage = null) {
+        const wrap = document.createElement("div");
+        wrap.className = `message ${role}`;
+        const meta = document.createElement("div");
+        meta.className = "meta";
+        meta.textContent = `${role}${stage ? " · " + stage : ""}`;
+        const bubble = document.createElement("div");
+        bubble.className = "bubble";
+        bubble.textContent = text;
+        wrap.appendChild(meta);
+        wrap.appendChild(bubble);
+        chatLog.appendChild(wrap);
+        chatLog.scrollTop = chatLog.scrollHeight;
+      }
+
+      function renderStageTrack() {
+        stageTrack.innerHTML = "";
+        STAGES.forEach((stage) => {
+          const pill = document.createElement("div");
+          pill.className = "stage-pill";
+          if (currentStage === stage) pill.classList.add("active");
+          if (task && task.completed_stages && task.completed_stages.includes(stage)) {
+            pill.classList.add("done");
+          }
+          pill.textContent = stage.replace("_", " ");
+          stageTrack.appendChild(pill);
+        });
+      }
+
+      function updateLabels() {
+        stageStatusLabel.textContent = task
+          ? `Stage status: ${task.stage_status || "-"}`
+          : "No task yet";
+        renderStageTrack();
+      }
+
+      function updateFromTask(newTask) {
+        task = newTask;
+        currentStage = newTask.current_stage;
+        artifacts = newTask.artifacts || {};
+        updateLabels();
+        renderCandidates();
+        loadPlan(taskId);
+        syncMessagesFromTask();
+      }
+
+      function extractPreview(content) {
+        if (!content || typeof content !== "object") return "";
+        const keys = ["scenario", "driving_question", "question_chain", "activity", "experiment"];
+        for (const key of keys) {
+          if (content[key] !== undefined) {
+            const value = content[key];
+            if (Array.isArray(value)) return value.slice(0, 2).join(" / ");
+            if (typeof value === "string") return value.slice(0, 120);
+            return JSON.stringify(value).slice(0, 120);
+          }
+        }
+        return JSON.stringify(content).slice(0, 120);
+      }
+
+      function renderCandidates() {
+        const artifact = artifacts[currentStage];
+        if (!artifact || !artifact.candidates || artifact.candidates.length === 0) {
+          candidateList.innerHTML = `<div class="subtle">No candidates yet.</div>`;
+          return;
+        }
+        candidateList.innerHTML = "";
+        artifact.candidates.forEach((cand) => {
+          const card = document.createElement("div");
+          card.className = "candidate-card";
+          if (cand.id === selectedCandidateId || cand.status === "selected") {
+            card.classList.add("selected");
+          }
+          card.onclick = () => {
+            selectedCandidateId = cand.id;
+            renderCandidates();
+            loadPlan(taskId);
+          };
+          const title = document.createElement("div");
+          title.className = "title";
+          title.innerHTML = `<span class="tag">${cand.id}</span>${cand.title || "Untitled"}`;
+          const preview = document.createElement("div");
+          preview.className = "preview";
+          preview.textContent = extractPreview(cand.content);
+          const meta = document.createElement("div");
+          meta.className = "meta";
+          meta.textContent = `status: ${cand.status} · alignment: ${cand.alignment_score}`;
+          const actions = document.createElement("div");
+          actions.className = "actions";
+          const selectBtn = document.createElement("button");
+          selectBtn.textContent = "Select";
+          selectBtn.onclick = (evt) => {
+            evt.stopPropagation();
+            submitAction("select_candidate", { stage: currentStage, candidate_id: cand.id });
+          };
+          actions.appendChild(selectBtn);
+          card.appendChild(title);
+          card.appendChild(preview);
+          card.appendChild(meta);
+          card.appendChild(actions);
+          candidateList.appendChild(card);
+        });
+      }
+
+      function createSection(title, value) {
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.textContent = title;
+        const body = document.createElement("div");
+        body.className = "section-body";
+
+        let textLength = 0;
+
+        if (Array.isArray(value)) {
+          const list = document.createElement("ul");
+          value.forEach((item) => {
+            const li = document.createElement("li");
+            li.textContent = typeof item === "string" ? item : JSON.stringify(item);
+            textLength += li.textContent.length;
+            list.appendChild(li);
+          });
+          body.appendChild(list);
+        } else if (typeof value === "object" && value !== null) {
+          const pre = document.createElement("pre");
+          pre.className = "code";
+          const text = JSON.stringify(value, null, 2);
+          pre.textContent = text;
+          textLength = text.length;
+          body.appendChild(pre);
+        } else {
+          const p = document.createElement("p");
+          const text = String(value ?? "");
+          p.textContent = text;
+          textLength = text.length;
+          body.appendChild(p);
+        }
+
+        details.open = textLength < 200;
+        details.appendChild(summary);
+        details.appendChild(body);
+        return details;
+      }
+
+      // Candidate detail view removed; right panel shows assembled course plan.
+
+      // Conflicts view removed from UI.
+
+      function renderPlan() {
+        if (!currentPlan || !currentPlan.sections) {
+          planBox.innerHTML = `<div class="subtle">No course plan yet.</div>`;
+          return;
+        }
+        planBox.innerHTML = "";
+        currentPlan.sections.forEach((section) => {
+          const stageTitle = (section.stage || "").replace("_", " ");
+          if (!section.content) {
+            const placeholder = document.createElement("div");
+            placeholder.className = "subtle";
+            placeholder.textContent = `${stageTitle}: waiting for selection`;
+            planBox.appendChild(placeholder);
+            return;
+          }
+          const title = section.title ? `${stageTitle} · ${section.title}` : stageTitle;
+          planBox.appendChild(createSection(title, section.content));
+        });
+      }
+
+      function appendTaskMessage(message) {
+        addChatMessage(message.role || "assistant", message.text || "", message.stage || null);
+        renderedMessageCount += 1;
+      }
+
+      function syncMessagesFromTask() {
+        if (!task || !Array.isArray(task.messages)) return;
+        for (let i = renderedMessageCount; i < task.messages.length; i += 1) {
+          appendTaskMessage(task.messages[i]);
+        }
+      }
+
+      async function submitAction(actionType, payload) {
+        if (!taskId || !currentStage) {
+          addChatMessage("system", "No active task or stage.");
+          return;
+        }
+        const response = await fetch(`/api/tasks/${taskId}/action`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action_type: actionType, payload }),
+        });
+        if (!response.ok) {
+          const msg = await response.text();
+          addChatMessage("system", `Action error: ${msg}`);
+          return;
+        }
+        const data = await response.json();
+        if (data.task) updateFromTask(data.task);
+      }
+
+      async function loadTask(taskIdValue) {
+        const response = await fetch(`/api/tasks/${taskIdValue}`);
+        if (!response.ok) {
+          const msg = await response.text();
+          addChatMessage("system", `Load task error: ${msg}`);
+          return;
+        }
+        const data = await response.json();
+        updateFromTask(data);
+      }
+
+      async function loadPlan(taskIdValue) {
+        if (!taskIdValue) return;
+        const response = await fetch(`/api/tasks/${taskIdValue}/plan`);
+        if (!response.ok) {
+          const msg = await response.text();
+          addChatMessage("system", `Plan error: ${msg}`);
+          return;
+        }
+        currentPlan = await response.json();
+        renderPlan();
+      }
+
+      function connectSse(taskIdValue) {
+        if (eventSource) eventSource.close();
+        eventSource = new EventSource(`/api/tasks/${taskIdValue}/events`);
+        eventSource.addEventListener("candidates", (evt) => {
+          const payload = JSON.parse(evt.data);
+          const data = payload.data || payload;
+          if (data.stage) {
+            artifacts[data.stage] = {
+              stage_type: data.stage,
+              candidates: data.candidates || [],
+            };
+            currentStage = data.stage;
+            updateLabels();
+            renderCandidates();
+            loadPlan(taskId);
+          }
+        });
+        eventSource.addEventListener("task_updated", (evt) => {
+          const payload = JSON.parse(evt.data);
+          const data = payload.data || payload;
+          if (data.task_id) updateFromTask(data);
+        });
+        eventSource.addEventListener("message", (evt) => {
+          const payload = JSON.parse(evt.data);
+          const data = payload.data || payload;
+          appendTaskMessage({ role: data.role, text: data.text, stage: data.stage });
+        });
+        eventSource.addEventListener("error", (evt) => {
+          addChatMessage("system", "SSE connection error.");
+        });
+      }
+
+      async function sendChatMessage(text) {
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: sessionId,
+            message: text,
+            task_id: taskId,
+          }),
+        });
+        if (!response.ok) {
+          const msg = await response.text();
+          addChatMessage("system", `Chat error: ${msg}`);
+          return;
+        }
+        const data = await response.json();
+        sessionId = data.session_id;
+        updateLabels();
+        if (data.assistant_message) {
+          addChatMessage("assistant", data.assistant_message);
+        }
+        if (data.status === "ready" && data.task_id) {
+          taskId = data.task_id;
+          renderedMessageCount = 0;
+          updateLabels();
+          await loadTask(taskId);
+          connectSse(taskId);
+        }
+      }
+
+      function parseCommand(text) {
+        const lower = text.trim().toLowerCase();
+        if (lower.startsWith("/select")) {
+          const parts = text.trim().split(/\s+/);
+          const id = parts[1] ? parts[1].toUpperCase() : null;
+          if (id) return { action: "select_candidate", candidate_id: id };
+        }
+        return null;
+      }
+
+      async function handleSend() {
+        const text = chatInput.value.trim();
+        if (!text) return;
+        chatInput.value = "";
+        addChatMessage("user", text, currentStage);
+
+        if (!taskId) {
+          await sendChatMessage(text);
+          return;
+        }
+
+        const command = parseCommand(text);
+        if (command) {
+          if (command.action === "select_candidate") {
+            await submitAction(command.action, { stage: currentStage, candidate_id: command.candidate_id });
+          } else {
+            await submitAction(command.action, { stage: currentStage });
+          }
+          return;
+        }
+
+        await submitAction("provide_feedback", { stage: currentStage, feedback: text });
+      }
+
+      sendBtn.onclick = handleSend;
+      chatInput.addEventListener("keydown", (evt) => {
+        if (evt.key === "Enter" && !evt.shiftKey) {
+          evt.preventDefault();
+          handleSend();
+        }
+      });
+
+      function applyTheme(theme) {
+        document.body.dataset.theme = theme;
+        const isDark = theme === "dark";
+        themeToggle.innerHTML = isDark
+          ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 109.8 9.8z"></path></svg><span id="themeLabel">Dark</span>`
+          : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path></svg><span id="themeLabel">Light</span>`;
+        const label = themeToggle.querySelector("#themeLabel");
+        if (label) {
+          label.textContent = isDark ? "Dark" : "Light";
+        }
+      }
+
+      themeToggle.onclick = () => {
+        const next = document.body.dataset.theme === "dark" ? "light" : "dark";
+        localStorage.setItem("pbl_theme", next);
+        applyTheme(next);
+      };
+
+      const savedTheme = localStorage.getItem("pbl_theme") || "light";
+      applyTheme(savedTheme);
+
+      addChatMessage(
+        "system",
+        "Describe your goal. I will decide the entry point and ask for missing JSON."
+      );
+      updateLabels();
+    </script>
+  </body>
+</html>

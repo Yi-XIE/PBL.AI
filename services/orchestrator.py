@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from adapters.tracing import TraceManager
 from core.dependencies import STAGE_SEQUENCE
-from core.models import Candidate, DecisionResult, Explanation, StageArtifact, Task, ToolSeed
+from core.models import Candidate, DecisionResult, Explanation, Message, StageArtifact, Task, ToolSeed
 from core.types import ActionType, CandidateStatus, ConflictSeverity, EntryPoint, StageStatus, StageType
 from engine.decision import make_decision, next_required_stage
 from engine.flow_nodes import (
@@ -27,6 +27,7 @@ from services.task_store import InMemoryTaskStore, JsonPersistence
 from utils.serialization import to_jsonable
 from validators.activity_alignment import validate_activity_alignment
 from validators.simple import validate_non_empty
+from services.decision_messenger import build_decision_message
 
 
 class Orchestrator:
@@ -262,7 +263,17 @@ class Orchestrator:
             if missing_chain and missing_chain[0] != stage:
                 decision = require_previous_stage(task, missing_chain)
                 task = self._emit_decision(task, decision)
-                return task, decision, task.artifacts.get(stage)
+                task = self._emit_event(
+                    task,
+                    Event(
+                        type="stage_redirected",
+                        task_id=task.task_id,
+                        stage=missing_chain[0],
+                        payload={"current_stage": missing_chain[0]},
+                    ),
+                    sse_event="task_updated",
+                )
+                return task, decision, task.artifacts.get(missing_chain[0])
 
             if action_type == ActionType.provide_feedback:
                 feedback = payload.get("feedback", "")
@@ -350,33 +361,6 @@ class Orchestrator:
                     sse_event="task_updated",
                 )
                 self._run_validators(task, stage, artifact.candidates)
-                if self._can_finalize(task, stage):
-                    task = self._finalize_stage(task, stage)
-                    decision = make_decision(task, target_stage=task.current_stage, requested_action=action_type.value)
-                    task = self._emit_decision(task, decision)
-                    current_artifact = None
-                    if decision.direction == "forward" and decision.next_stage:
-                        command = candidate_stage_node(task, decision.next_stage)
-                        self._trace_flow(
-                            task,
-                            "candidate_stage",
-                            {"stage": command.stage.value, "count": command.count},
-                        )
-                        candidates = self._generate_candidates(
-                            task,
-                            command.stage,
-                            feedback=None,
-                            count=command.count,
-                        )
-                        task, current_artifact = self._apply_candidates(
-                            task,
-                            command.stage,
-                            candidates,
-                            regenerate=False,
-                        )
-                        self._run_validators(task, command.stage, candidates)
-                    return task, decision, current_artifact
-
                 decision = make_decision(task, target_stage=stage, requested_action=action_type.value)
                 task = self._emit_decision(task, decision)
                 return task, decision, task.artifacts.get(stage)
@@ -631,8 +615,17 @@ class Orchestrator:
                     if cand.id == selected:
                         question_chain = cand.content.get("question_chain", [])
                         break
-            activity_text = candidates[0].content.get("activity", "")
-            if tool_seed is not None:
+            candidate_to_validate: Optional[Candidate] = None
+            artifact = task.artifacts.get(stage)
+            if artifact and artifact.selected_candidate_id:
+                for cand in artifact.candidates:
+                    if cand.id == artifact.selected_candidate_id:
+                        candidate_to_validate = cand
+                        break
+            activity_text = (
+                candidate_to_validate.content.get("activity", "") if candidate_to_validate else ""
+            )
+            if tool_seed is not None and candidate_to_validate is not None:
                 alignment = validate_activity_alignment(tool_seed, question_chain, activity_text)
                 validation.conflicts.extend(alignment.conflicts)
         for conflict in validation.conflicts:
@@ -671,7 +664,26 @@ class Orchestrator:
             stage=task.current_stage,
             payload={"decision": decision.model_dump()},
         )
-        return self._emit_event(task, event, sse_event="decision", sse_payload=decision.model_dump())
+        task = self._emit_event(task, event, sse_event="decision", sse_payload=decision.model_dump())
+        message_text = build_decision_message(task, decision)
+        message = Message(
+            role="assistant",
+            text=message_text,
+            stage=task.current_stage,
+            kind="decision",
+        )
+        task = self._emit_event(
+            task,
+            Event(
+                type="message_emitted",
+                task_id=task.task_id,
+                stage=task.current_stage,
+                payload={"message": message.model_dump()},
+            ),
+            sse_event="message",
+            sse_payload={"role": message.role, "text": message.text, "stage": message.stage.value if message.stage else None},
+        )
+        return task
 
     def _emit_event(
         self,

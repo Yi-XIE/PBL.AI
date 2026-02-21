@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from core.models import Candidate, Conflict, DecisionResult, StageArtifact, Task, ToolSeed
+from core.models import Candidate, Conflict, DecisionResult, Message, StageArtifact, Task, ToolSeed
 from core.types import CandidateStatus, EntryPoint, StageStatus, StageType
 
 
@@ -81,6 +81,9 @@ def apply_event(task: Task, event: Event) -> Task:
         if event.stage is None:
             return task
         artifact = _ensure_artifact(task, event.stage)
+        if event.stage in task.conflicts:
+            task.conflicts[event.stage] = []
+        artifact.warnings = []
         revision_id = event.payload.get("revision_id")
         if revision_id and artifact.revision_id == revision_id:
             return task
@@ -110,6 +113,8 @@ def apply_event(task: Task, event: Event) -> Task:
         if event.stage is None:
             return task
         artifact = _ensure_artifact(task, event.stage)
+        if event.stage in task.conflicts:
+            task.conflicts[event.stage] = []
         selected_id = event.payload.get("candidate_id")
         artifact.selected_candidate_id = selected_id
         updated: List[Candidate] = []
@@ -126,7 +131,6 @@ def apply_event(task: Task, event: Event) -> Task:
         if event.stage is None:
             return task
         artifact = _ensure_artifact(task, event.stage)
-        artifact.iteration_count += 1
         artifact.status = StageStatus.feedback_loop
         artifact.history.append(
             {
@@ -166,6 +170,13 @@ def apply_event(task: Task, event: Event) -> Task:
         task.conflicts[event.stage] = updated
         return task
 
+    if event.type == "message_emitted":
+        payload = event.payload.get("message") if event.payload else None
+        if payload:
+            message = Message(**payload)
+            task.messages.append(message)
+        return task
+
     if event.type == "stage_finalized":
         if event.stage is None:
             return task
@@ -179,6 +190,15 @@ def apply_event(task: Task, event: Event) -> Task:
             next_stage = StageType(next_stage)
         if next_stage is not None:
             task.current_stage = next_stage
+        return task
+
+    if event.type == "stage_redirected":
+        target = event.payload.get("current_stage") or event.stage
+        if isinstance(target, str):
+            target = StageType(target)
+        if isinstance(target, StageType):
+            task.current_stage = target
+            task.stage_status = StageStatus.initialized
         return task
 
     if event.type == "task_completed":

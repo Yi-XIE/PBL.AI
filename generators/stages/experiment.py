@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from datetime import datetime, timezone
 
-from adapters.llm import get_llm
+from adapters.llm import LLMInvocationError, get_llm
 from core.models import Candidate, Task
 from core.types import CandidateStatus, StageType
 from generators.utils import (
@@ -27,10 +27,7 @@ class ExperimentGenerator:
         template = load_prompt_template("experiment.txt")
         prompt = build_prompt(template)
         prompt_context = get_prompt_context(tool_seed)
-        try:
-            llm = get_llm()
-        except Exception:
-            llm = None
+        llm = get_llm()
 
         raw_candidates: List[dict] = []
         for index in range(count):
@@ -41,11 +38,6 @@ class ExperimentGenerator:
                 derived_from.append("driving_question")
             if task.entry_point.value == "tool_seed":
                 derived_from.append("tool_seed")
-            if llm is None:
-                raw_candidates.append(
-                    self._template_raw(prompt_context["topic"], index, derived_from, tool_seed.constraints or {})
-                )
-                continue
             try:
                 chain = prompt | llm
                 safety_constraints = prompt_context["knowledge_snippets"].get("safety_constraints", [])
@@ -83,10 +75,8 @@ class ExperimentGenerator:
                         },
                     }
                 )
-            except Exception:
-                raw_candidates.append(
-                    self._template_raw(prompt_context["topic"], index, derived_from, tool_seed.constraints or {})
-                )
+            except Exception as exc:
+                raise LLMInvocationError("LLM invocation failed for experiment") from exc
 
         return [self._to_candidate(raw) for raw in raw_candidates]
 

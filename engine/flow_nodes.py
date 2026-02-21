@@ -33,7 +33,7 @@ def dependency_check_node(task: Task, target_stage: StageType) -> dict:
             "required": [],
             "error": str(exc),
         }
-    required = compute_missing_deps(target_stage, task.entry_point, [])
+    required = compute_missing_deps(target_stage, task.entry_point, task.completed_stages)
     can_proceed = not missing_chain or (len(missing_chain) == 1 and missing_chain[0] == target_stage)
     return {
         "can_proceed": can_proceed,

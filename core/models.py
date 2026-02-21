@@ -82,6 +82,14 @@ class Conflict(BaseModel):
     resolved_option: Optional[str] = None
 
 
+class Message(BaseModel):
+    role: str
+    text: str
+    stage: Optional[StageType] = None
+    kind: str = "assistant"
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class Task(BaseModel):
     task_id: str = Field(default_factory=lambda: uuid4().hex)
     session_id: str = Field(default_factory=lambda: uuid4().hex)
@@ -95,6 +103,7 @@ class Task(BaseModel):
     stage_status: StageStatus = StageStatus.initialized
     conflicts: Dict[StageType, List[Conflict]] = Field(default_factory=dict)
     last_decision: Optional[DecisionResult] = None
+    messages: List[Message] = Field(default_factory=list)
     trace_root_id: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

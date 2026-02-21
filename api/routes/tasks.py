@@ -7,9 +7,12 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
+from adapters.llm import LLMInvocationError, LLMNotConfigured
 from core.models import DecisionResult, StageArtifact, Task, ToolSeed
 from core.types import ActionType, EntryPoint
+from services.chat_orchestrator import ChatSessionStore, handle_chat_message
 from services.orchestrator import Orchestrator
+from services.plan_builder import build_course_plan
 from services.sse_bus import SSEBus
 from services.task_store import InMemoryTaskStore, JsonPersistence
 from utils.serialization import to_jsonable
@@ -20,6 +23,7 @@ store = InMemoryTaskStore()
 persistence = JsonPersistence()
 sse_bus = SSEBus()
 orchestrator = Orchestrator(store, persistence, sse_bus)
+chat_store = ChatSessionStore()
 
 
 class TaskCreateRequest(BaseModel):
@@ -100,6 +104,34 @@ class ProgressResponse(BaseModel):
     stage_status: str
 
 
+class ChatRequest(BaseModel):
+    session_id: Optional[str] = None
+    message: str
+    task_id: Optional[str] = None
+
+
+class ChatResponse(BaseModel):
+    session_id: str
+    status: str
+    assistant_message: str
+    entry_point: Optional[EntryPoint] = None
+    entry_data: Optional[Any] = None
+    task_id: Optional[str] = None
+
+
+class CoursePlanSection(BaseModel):
+    stage: str
+    title: str = ""
+    candidate_id: Optional[str] = None
+    content: Optional[Any] = None
+    raw: Optional[Any] = None
+
+
+class CoursePlanResponse(BaseModel):
+    task_id: str
+    sections: list[CoursePlanSection]
+
+
 @router.post("/tasks", response_model=TaskCreateResponse)
 async def create_task(request: TaskCreateRequest) -> TaskCreateResponse:
     entry_point = request.entry_point
@@ -119,7 +151,12 @@ async def create_task(request: TaskCreateRequest) -> TaskCreateResponse:
             entry_data = request.scenario
         else:
             entry_data = {"scenario": request.scenario}
-    task, decision, artifact = orchestrator.create_task(entry_point, entry_data)
+    try:
+        task, decision, artifact = orchestrator.create_task(entry_point, entry_data)
+    except LLMNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except LLMInvocationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return TaskCreateResponse(task=task, decision=decision, current_stage_artifact=artifact)
 
 
@@ -145,15 +182,69 @@ async def get_progress(task_id: str) -> ProgressResponse:
     )
 
 
+@router.get("/tasks/{task_id}/plan", response_model=CoursePlanResponse)
+async def get_plan(task_id: str) -> CoursePlanResponse:
+    task = store.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    plan = build_course_plan(task)
+    return CoursePlanResponse(**plan)
+
+
 @router.post("/tasks/{task_id}/action", response_model=ActionResponse)
 async def apply_action(task_id: str, request: ActionRequest) -> ActionResponse:
     try:
         task, decision, artifact = orchestrator.apply_action(
             task_id, request.action_type, request.payload
         )
+    except LLMNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except LLMInvocationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ActionResponse(task=task, decision=decision, current_stage_artifact=artifact)
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat_entry(request: ChatRequest) -> ChatResponse:
+    session = None
+    if request.session_id:
+        session = chat_store.get(request.session_id)
+    if session is None:
+        session = chat_store.create()
+
+    try:
+        result = handle_chat_message(session=session, message=request.message)
+    except LLMNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except LLMInvocationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    status = result["status"]
+    entry_point = result.get("entry_point")
+    entry_data = result.get("entry_data")
+
+    task_id: Optional[str] = None
+    if status == "ready" and entry_point is not None and entry_data is not None:
+        try:
+            task, _, _ = orchestrator.create_task(entry_point, entry_data)
+        except LLMNotConfigured as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except LLMInvocationError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        task_id = task.task_id
+
+    return ChatResponse(
+        session_id=session.session_id,
+        status=status,
+        assistant_message=result.get("assistant_message", ""),
+        entry_point=entry_point,
+        entry_data=entry_data,
+        task_id=task_id,
+    )
 
 
 @router.get("/tasks/{task_id}/events")

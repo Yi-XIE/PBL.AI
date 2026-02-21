@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from datetime import datetime, timezone
 
-from adapters.llm import get_llm
+from adapters.llm import LLMInvocationError, get_llm
 from core.models import Candidate, Task
 from core.types import CandidateStatus, StageType
 from generators.utils import (
@@ -27,18 +27,12 @@ class QuestionChainGenerator:
         template = load_prompt_template("question_chain.txt")
         prompt = build_prompt(template)
         prompt_context = get_prompt_context(tool_seed)
-        try:
-            llm = get_llm()
-        except Exception:
-            llm = None
+        llm = get_llm()
 
         raw_candidates: List[dict] = []
         for index in range(count):
             hint = f"Provide option {index + 1} with a distinct angle."
             feedback_text = f"{feedback}; {hint}" if feedback else hint
-            if llm is None:
-                raw_candidates.append(self._template_raw(driving_question, index))
-                continue
             try:
                 chain = prompt | llm
                 result = chain.invoke(
@@ -69,8 +63,8 @@ class QuestionChainGenerator:
                         },
                     }
                 )
-            except Exception:
-                raw_candidates.append(self._template_raw(driving_question, index))
+            except Exception as exc:
+                raise LLMInvocationError("LLM invocation failed for question_chain") from exc
 
         return [self._to_candidate(raw) for raw in raw_candidates]
 
