@@ -1,0 +1,166 @@
+from __future__ import annotations
+
+import json
+from typing import Any, Dict, Optional
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field, ValidationError, model_validator
+
+from core.models import DecisionResult, StageArtifact, Task, ToolSeed
+from core.types import ActionType, EntryPoint
+from services.orchestrator import Orchestrator
+from services.sse_bus import SSEBus
+from services.task_store import InMemoryTaskStore, JsonPersistence
+from utils.serialization import to_jsonable
+
+
+router = APIRouter()
+store = InMemoryTaskStore()
+persistence = JsonPersistence()
+sse_bus = SSEBus()
+orchestrator = Orchestrator(store, persistence, sse_bus)
+
+
+class TaskCreateRequest(BaseModel):
+    entry_point: EntryPoint
+    scenario: Optional[Any] = None
+    tool_seed: Optional[Any] = None
+
+
+class TaskCreateResponse(BaseModel):
+    task: Task
+    decision: DecisionResult
+    current_stage_artifact: Optional[StageArtifact] = None
+
+
+class ActionRequest(BaseModel):
+    action_type: Optional[ActionType] = None
+    action: Optional[str] = None
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    candidate_id: Optional[str] = None
+    target_component: Optional[str] = None
+    stage: Optional[str] = None
+    feedback: Optional[str] = None
+    option: Optional[str] = None
+    conflict_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def normalize_action(self) -> "ActionRequest":
+        if self.action_type is None and self.action:
+            alias = self.action.lower()
+            mapping = {
+                "accept": ActionType.finalize_stage,
+                "finalize": ActionType.finalize_stage,
+                "finalize_stage": ActionType.finalize_stage,
+                "select": ActionType.select_candidate,
+                "select_candidate": ActionType.select_candidate,
+                "regenerate": ActionType.regenerate_candidates,
+                "regenerate_candidates": ActionType.regenerate_candidates,
+                "feedback": ActionType.provide_feedback,
+                "provide_feedback": ActionType.provide_feedback,
+                "resolve_conflict": ActionType.resolve_conflict,
+            }
+            self.action_type = mapping.get(alias)
+            if self.action_type is None:
+                try:
+                    self.action_type = ActionType(alias)
+                except ValueError:
+                    self.action_type = None
+        if self.action_type is None:
+            raise ValueError("action_type is required")
+        payload = dict(self.payload or {})
+        if "stage" not in payload:
+            stage_value = self.stage or self.target_component
+            if stage_value:
+                payload["stage"] = stage_value
+        if self.candidate_id and "candidate_id" not in payload:
+            payload["candidate_id"] = self.candidate_id
+        if self.feedback and "feedback" not in payload:
+            payload["feedback"] = self.feedback
+        if self.option and "option" not in payload:
+            payload["option"] = self.option
+        if self.conflict_id and "conflict_id" not in payload:
+            payload["conflict_id"] = self.conflict_id
+        self.payload = payload
+        return self
+
+
+class ActionResponse(BaseModel):
+    task: Task
+    decision: DecisionResult
+    current_stage_artifact: Optional[StageArtifact] = None
+
+
+class ProgressResponse(BaseModel):
+    task_id: str
+    current_stage: str
+    completed_stages: list[str]
+    status: str
+    stage_status: str
+
+
+@router.post("/tasks", response_model=TaskCreateResponse)
+async def create_task(request: TaskCreateRequest) -> TaskCreateResponse:
+    entry_point = request.entry_point
+    entry_data: Dict[str, Any] = {}
+    if entry_point == EntryPoint.tool_seed:
+        if request.tool_seed is None:
+            raise HTTPException(status_code=400, detail="tool_seed is required")
+        entry_data = request.tool_seed if isinstance(request.tool_seed, dict) else request.tool_seed.dict()
+        try:
+            ToolSeed(**entry_data)
+        except ValidationError as exc:
+            raise HTTPException(status_code=400, detail=exc.errors()) from exc
+    else:
+        if request.scenario is None:
+            raise HTTPException(status_code=400, detail="scenario is required")
+        if isinstance(request.scenario, dict):
+            entry_data = request.scenario
+        else:
+            entry_data = {"scenario": request.scenario}
+    task, decision, artifact = orchestrator.create_task(entry_point, entry_data)
+    return TaskCreateResponse(task=task, decision=decision, current_stage_artifact=artifact)
+
+
+@router.get("/tasks/{task_id}", response_model=Task)
+async def get_task(task_id: str) -> Task:
+    task = store.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
+
+
+@router.get("/tasks/{task_id}/progress", response_model=ProgressResponse)
+async def get_progress(task_id: str) -> ProgressResponse:
+    task = store.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return ProgressResponse(
+        task_id=task.task_id,
+        current_stage=task.current_stage.value,
+        completed_stages=[s.value for s in task.completed_stages],
+        status=task.status,
+        stage_status=task.stage_status.value,
+    )
+
+
+@router.post("/tasks/{task_id}/action", response_model=ActionResponse)
+async def apply_action(task_id: str, request: ActionRequest) -> ActionResponse:
+    try:
+        task, decision, artifact = orchestrator.apply_action(
+            task_id, request.action_type, request.payload
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ActionResponse(task=task, decision=decision, current_stage_artifact=artifact)
+
+
+@router.get("/tasks/{task_id}/events")
+async def stream_events(task_id: str) -> StreamingResponse:
+    async def event_stream():
+        async for item in sse_bus.stream(task_id):
+            payload = json.dumps(to_jsonable(item["data"]), ensure_ascii=False, default=str)
+            yield f"event: {item['event']}\ndata: {payload}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
