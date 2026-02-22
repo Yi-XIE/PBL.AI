@@ -32,7 +32,7 @@ class QuestionChainGenerator:
         tool_seed = get_tool_seed(task)
         template = load_prompt_template("question_chain.txt")
         prompt = build_prompt(template)
-        prompt_context = get_prompt_context(tool_seed)
+        prompt_context = get_prompt_context(tool_seed, task)
         llm = get_llm()
         avoid_candidates = collect_avoid_candidates(task, StageType.question_chain)
 
@@ -158,6 +158,9 @@ class QuestionChainGenerator:
                     "option_count": count,
                     "avoid_candidates": self._format_avoid(avoid_candidates),
                     "distinctness_rules": DISTINCTNESS_RULES,
+                    "creative_intent": prompt_context["creative_intent"],
+                    "decision_summary": prompt_context["decision_summary"],
+                    "working_memory_notes": prompt_context["working_memory_notes"],
                 }
             )
             payload = extract_json(result.content or "")
@@ -170,6 +173,13 @@ class QuestionChainGenerator:
         if isinstance(chain, list):
             return " ".join(str(item) for item in chain if item)
         return str(chain or "")
+
+    def _is_valid(self, raw: dict) -> bool:
+        chain = raw.get("question_chain")
+        if not isinstance(chain, list):
+            return False
+        filled = [item for item in chain if str(item).strip()]
+        return len(filled) >= 3
 
     def _ensure_unique(
         self,
@@ -190,7 +200,7 @@ class QuestionChainGenerator:
             if len(unique) >= count:
                 break
             text = self._option_text(raw)
-            if is_duplicate(text, seen_texts):
+            if (not self._is_valid(raw)) or is_duplicate(text, seen_texts):
                 replacement = None
                 for _ in range(2):
                     regenerated = self._invoke_options(
@@ -206,7 +216,7 @@ class QuestionChainGenerator:
                     if regenerated:
                         candidate = regenerated[0]
                         candidate_text = self._option_text(candidate)
-                        if not is_duplicate(candidate_text, seen_texts):
+                        if self._is_valid(candidate) and not is_duplicate(candidate_text, seen_texts):
                             replacement = candidate
                             text = candidate_text
                             break
@@ -232,7 +242,7 @@ class QuestionChainGenerator:
                 raise LLMInvocationError("Insufficient candidates for question_chain")
             candidate = regenerated[0]
             candidate_text = self._option_text(candidate)
-            if is_duplicate(candidate_text, seen_texts):
+            if (not self._is_valid(candidate)) or is_duplicate(candidate_text, seen_texts):
                 raise LLMInvocationError("Duplicate candidates detected for question_chain")
             unique.append(candidate)
             seen_texts.append(candidate_text)

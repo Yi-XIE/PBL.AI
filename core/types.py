@@ -42,3 +42,10 @@ class ActionType(str, Enum):
     provide_feedback = "provide_feedback"
     finalize_stage = "finalize_stage"
     resolve_conflict = "resolve_conflict"
+
+
+class DialogueState(str, Enum):
+    exploring = "exploring"
+    generating = "generating"
+    selecting = "selecting"
+    conflict_resolution = "conflict_resolution"

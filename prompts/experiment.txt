@@ -30,3 +30,6 @@
 - 班级情境：{classroom_context}
 - 用户反馈：{user_feedback}
 - derived_from: {derived_from}
+- 高权重意图：{creative_intent}
+- 决策摘要：{decision_summary}
+- 工作记忆：{working_memory_notes}

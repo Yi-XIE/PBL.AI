@@ -132,7 +132,7 @@
 
       .grid {
         display: grid;
-        grid-template-columns: 1.1fr 1fr 1.2fr;
+        grid-template-columns: 1.1fr 1.3fr 1.1fr;
         gap: 16px;
         flex: 1;
         min-height: 0;
@@ -307,6 +307,36 @@
         border-radius: 14px;
         border: 1px solid var(--border);
         background: rgba(255, 255, 255, 0.8);
+        position: sticky;
+        top: 0;
+        z-index: 4;
+      }
+
+      .intake-form.collapsed {
+        padding: 10px 12px;
+        gap: 8px;
+        background: rgba(255, 255, 255, 0.95);
+        box-shadow: 0 8px 16px rgba(15, 23, 42, 0.08);
+      }
+
+      .intake-form.collapsed .form-row,
+      .intake-form.collapsed .form-actions,
+      .intake-form.collapsed .form-hint {
+        display: none;
+      }
+
+      .intake-summary {
+        display: none;
+        font-size: 12px;
+        color: var(--text);
+        padding: 8px 10px;
+        border-radius: 10px;
+        background: rgba(45, 212, 191, 0.12);
+        border: 1px solid rgba(45, 212, 191, 0.3);
+      }
+
+      .intake-form.collapsed .intake-summary {
+        display: block;
       }
 
       .form-row {
@@ -468,6 +498,56 @@
         cursor: pointer;
         background: rgba(255, 255, 255, 0.7);
         transition: border-color 0.2s ease, background 0.2s ease;
+        width: 100%;
+      }
+
+      .candidate-card.skeleton {
+        cursor: default;
+        border-style: dashed;
+        background: rgba(15, 23, 42, 0.04);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .candidate-card.skeleton::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.5),
+          transparent
+        );
+        transform: translateX(-100%);
+        animation: shimmer 1.4s infinite;
+      }
+
+      .candidate-card.skeleton .skeleton-line {
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.08);
+      }
+
+      .candidate-card.skeleton .skeleton-line.short {
+        width: 42%;
+      }
+
+      .candidate-card.skeleton .skeleton-line.medium {
+        width: 68%;
+      }
+
+      .candidate-card.skeleton .skeleton-line.long {
+        width: 90%;
+      }
+
+      @keyframes shimmer {
+        0% {
+          transform: translateX(-100%);
+        }
+        100% {
+          transform: translateX(100%);
+        }
       }
 
       .candidate-card:hover {
@@ -649,15 +729,15 @@
             <h2>Chat</h2>
             <div class="subtle">LLM decides entry point · all notifications here</div>
           </div>
-          <div id="chatLog" class="chat-log"></div>
           <div id="intakeForm" class="intake-form">
+            <div class="intake-summary" id="intakeSummary"></div>
             <div class="form-row">
               <label for="intakeKnowledge">知识点</label>
               <input id="intakeKnowledge" type="text" placeholder="例如：KNN 分类、聚类、数据可视化" />
             </div>
             <div class="form-row">
               <label for="intakeLessonCount">课时（每节 40 分钟）</label>
-              <input id="intakeLessonCount" type="number" min="1" value="1" />
+              <input id="intakeLessonCount" type="number" min="1" max="3" value="1" />
               <div class="form-hint">总时长将按课时 × 40 分钟计算</div>
             </div>
             <div class="form-row">
@@ -683,6 +763,7 @@
               <button id="intakeSubmit" type="button">开始</button>
             </div>
           </div>
+          <div id="chatLog" class="chat-log"></div>
           <div id="chatComposer" class="composer hidden">
             <div class="input-wrap">
               <textarea id="chatInput" placeholder=""></textarea>
@@ -726,6 +807,7 @@
       const intakeLessonCount = document.getElementById("intakeLessonCount");
       const intakeAgeGroup = document.getElementById("intakeAgeGroup");
       const intakeClassroom = document.getElementById("intakeClassroom");
+      const intakeSummary = document.getElementById("intakeSummary");
       const chatComposer = document.getElementById("chatComposer");
       const chatInput = document.getElementById("chatInput");
       const sendBtn = document.getElementById("sendBtn");
@@ -783,6 +865,9 @@
       }
 
       function addChatMessage(role, text, stage = null, options = {}) {
+        if (role === "system") {
+          return null;
+        }
         const message = createMessage(role, text, stage, options);
         chatLog.appendChild(message.wrap);
         scrollChatToBottom();
@@ -855,7 +940,6 @@
       }
 
       function showChatComposer() {
-        intakeForm.classList.add("hidden");
         chatComposer.classList.remove("hidden");
         chatInput.placeholder = "";
         chatInput.focus();
@@ -945,7 +1029,25 @@
       function renderCandidates() {
         const artifact = artifacts[currentStage];
         if (!artifact || !artifact.candidates || artifact.candidates.length === 0) {
-          candidateList.innerHTML = `<div class="subtle">No candidates yet.</div>`;
+          if (task && currentStage) {
+            const skeletons = [];
+            for (let i = 0; i < 3; i += 1) {
+              skeletons.push(
+                `<div class="candidate-card skeleton">
+                  <div class="skeleton-line long"></div>
+                  <div class="skeleton-line medium"></div>
+                  <div class="skeleton-line long"></div>
+                  <div class="skeleton-line short"></div>
+                </div>`
+              );
+            }
+            candidateList.innerHTML = `
+              <div class="subtle">生成中...</div>
+              ${skeletons.join("")}
+            `;
+          } else {
+            candidateList.innerHTML = `<div class="subtle">No candidates yet.</div>`;
+          }
           return;
         }
         candidateList.innerHTML = "";
@@ -1055,6 +1157,9 @@
 
       function appendTaskMessage(message, options = {}) {
         const role = message.role || "assistant";
+        if (role === "system") {
+          return;
+        }
         const text = message.text || "";
         const stage = message.stage || null;
         if (role === "assistant" && options.stream !== false) {
@@ -1250,7 +1355,7 @@
 
       intakeSubmit.onclick = async () => {
         const knowledge_point = intakeKnowledge.value.trim();
-        const lesson_count = parseInt(intakeLessonCount.value || "1", 10);
+        let lesson_count = parseInt(intakeLessonCount.value || "1", 10);
         const age_group = intakeAgeGroup.value.trim();
         const classroom_type = intakeClassroom.value.trim();
         if (!knowledge_point || !age_group || !classroom_type) {
@@ -1259,10 +1364,14 @@
         }
         const intake = {
           knowledge_point,
-          lesson_count: Number.isNaN(lesson_count) ? 1 : Math.max(1, lesson_count),
+          lesson_count: Number.isNaN(lesson_count) ? 1 : Math.min(3, Math.max(1, lesson_count)),
           age_group,
           classroom_type,
         };
+        lesson_count = intake.lesson_count;
+        intakeLessonCount.value = String(lesson_count);
+        intakeSummary.textContent = `🎯 ${age_group}·${knowledge_point}·${lesson_count * 40}分钟·${classroom_type}`;
+        intakeForm.classList.add("collapsed");
         showChatComposer();
         startThinking(null);
         await sendChatMessage("", intake);

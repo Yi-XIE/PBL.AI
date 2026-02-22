@@ -29,3 +29,6 @@
 - 安全约束：{safety_constraints}
 - 工具限制：{tool_constraints}
 - 用户反馈：{user_feedback}
+- 高权重意图：{creative_intent}
+- 决策摘要：{decision_summary}
+- 工作记忆：{working_memory_notes}

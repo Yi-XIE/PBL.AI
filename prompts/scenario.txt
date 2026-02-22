@@ -13,6 +13,7 @@
 要求：
 - options 数量必须等于 {option_count}
 - 每个方案的场景设定、角色与任务要明显不同，避免同义改写
+- 场景必须是现实生活情境或真实学习任务，禁止魔法/科幻/超现实设定
 - 避免与以下内容重复：
 {avoid_candidates}
 - distinctness_rules: {distinctness_rules}
@@ -25,3 +26,6 @@
 - 规则：{grade_rules}
 - 话题模板：{topic_template}
 - 用户反馈：{user_feedback}
+- 高权重意图：{creative_intent}
+- 决策摘要：{decision_summary}
+- 工作记忆：{working_memory_notes}

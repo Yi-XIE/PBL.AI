@@ -31,6 +31,9 @@ class FakeChatModel(Runnable):
                 '"scenario":"Test scenario","tool_seed":null,"question":null}'
             )
             return AIMessage(content=payload)
+        if "entry_point" in text and "confidence" in text and "reason" in text:
+            payload = '{"entry_point":"scenario","confidence":0.8,"reason":"rule_match"}'
+            return AIMessage(content=payload)
         FakeChatModel._global_index += 1
         suffix = FakeChatModel._global_index
         themes = [
@@ -255,3 +258,9 @@ def test_chat_entry_ready(client: TestClient) -> None:
     data = response.json()
     assert data["status"] == "ready"
     assert data["task_id"]
+
+    task_id = data["task_id"]
+    task_response = client.get(f"/api/tasks/{task_id}")
+    assert task_response.status_code == 200
+    task = task_response.json()
+    assert any(msg.get("entry_decision") for msg in task.get("messages", []))

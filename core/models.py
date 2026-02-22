@@ -6,7 +6,14 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from core.types import CandidateStatus, ConflictSeverity, EntryPoint, StageStatus, StageType
+from core.types import (
+    CandidateStatus,
+    ConflictSeverity,
+    DialogueState,
+    EntryPoint,
+    StageStatus,
+    StageType,
+)
 
 
 class ToolSeed(BaseModel):
@@ -17,6 +24,34 @@ class ToolSeed(BaseModel):
     affordances: List[str] = Field(default_factory=list)
     constraints: Dict[str, Any] = Field(default_factory=dict)
     user_intent: str
+
+
+class IntentRevision(BaseModel):
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    trigger: str = ""
+    before: str = ""
+    after: str = ""
+    user_confirmed: bool = False
+
+
+class CreativeContext(BaseModel):
+    original_intent: str = ""
+    intent_evolution: List[IntentRevision] = Field(default_factory=list)
+    key_constraints: List[str] = Field(default_factory=list)
+    preferred_style: Optional[str] = None
+    anchor_concepts: List[str] = Field(default_factory=list)
+
+
+class WorkingMemory(BaseModel):
+    focus: str = ""
+    notes: List[str] = Field(default_factory=list)
+
+
+class EntryDecision(BaseModel):
+    chosen_entry_point: EntryPoint
+    rules_hit: List[str] = Field(default_factory=list)
+    model_reason: str = ""
+    confidence: float = 0.0
 
 
 class Candidate(BaseModel):
@@ -87,6 +122,8 @@ class Message(BaseModel):
     text: str
     stage: Optional[StageType] = None
     kind: str = "assistant"
+    mode: str = "generating"
+    entry_decision: Optional[EntryDecision] = None
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -103,7 +140,11 @@ class Task(BaseModel):
     stage_status: StageStatus = StageStatus.initialized
     conflicts: Dict[StageType, List[Conflict]] = Field(default_factory=dict)
     last_decision: Optional[DecisionResult] = None
+    decision_history: List[Dict[str, Any]] = Field(default_factory=list)
     messages: List[Message] = Field(default_factory=list)
+    creative_context: CreativeContext = Field(default_factory=CreativeContext)
+    dialogue_state: DialogueState = DialogueState.generating
+    working_memory: WorkingMemory = Field(default_factory=WorkingMemory)
     trace_root_id: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

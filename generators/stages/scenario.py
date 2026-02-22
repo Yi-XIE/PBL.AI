@@ -19,6 +19,7 @@ from generators.utils import (
     normalize_options,
     to_candidate_payload,
 )
+from validators.scenario_realism import is_realistic
 
 
 DISTINCTNESS_RULES = "Each option must be substantially different in setting and learner role. Do not paraphrase."
@@ -29,7 +30,7 @@ class ScenarioGenerator:
         tool_seed = get_tool_seed(task)
         template = load_prompt_template("scenario.txt")
         prompt = build_prompt(template)
-        prompt_context = get_prompt_context(tool_seed)
+        prompt_context = get_prompt_context(tool_seed, task)
         llm = get_llm()
 
         raw_candidates: List[dict] = []
@@ -178,6 +179,9 @@ class ScenarioGenerator:
                     "option_count": count,
                     "avoid_candidates": self._format_avoid(avoid_candidates),
                     "distinctness_rules": DISTINCTNESS_RULES,
+                    "creative_intent": prompt_context["creative_intent"],
+                    "decision_summary": prompt_context["decision_summary"],
+                    "working_memory_notes": prompt_context["working_memory_notes"],
                 }
             )
             payload = extract_json(result.content or "")
@@ -187,6 +191,10 @@ class ScenarioGenerator:
 
     def _option_text(self, raw: dict) -> str:
         return raw.get("scenario") or raw.get("title") or ""
+
+    def _is_valid(self, raw: dict) -> bool:
+        text = self._option_text(raw)
+        return bool(text and text.strip())
 
     def _ensure_unique(
         self,
@@ -206,7 +214,7 @@ class ScenarioGenerator:
             if len(unique) >= count:
                 break
             text = self._option_text(raw)
-            if is_duplicate(text, seen_texts):
+            if (not self._is_valid(raw)) or is_duplicate(text, seen_texts) or not is_realistic(text):
                 replacement = None
                 for _ in range(2):
                     regenerated = self._invoke_options(
@@ -221,13 +229,17 @@ class ScenarioGenerator:
                     if regenerated:
                         candidate = regenerated[0]
                         candidate_text = self._option_text(candidate)
-                        if not is_duplicate(candidate_text, seen_texts):
+                        if (
+                            self._is_valid(candidate)
+                            and not is_duplicate(candidate_text, seen_texts)
+                            and is_realistic(candidate_text)
+                        ):
                             replacement = candidate
                             text = candidate_text
                             break
                         seen_texts.append(candidate_text)
                 if replacement is None:
-                    raise LLMInvocationError("Duplicate candidates detected for scenario")
+                    raise LLMInvocationError("Duplicate or unrealistic candidates detected for scenario")
                 raw = replacement
             unique.append(raw)
             seen_texts.append(text)
@@ -246,8 +258,12 @@ class ScenarioGenerator:
                 raise LLMInvocationError("Insufficient candidates for scenario")
             candidate = regenerated[0]
             candidate_text = self._option_text(candidate)
-            if is_duplicate(candidate_text, seen_texts):
-                raise LLMInvocationError("Duplicate candidates detected for scenario")
+            if (
+                not self._is_valid(candidate)
+                or is_duplicate(candidate_text, seen_texts)
+                or not is_realistic(candidate_text)
+            ):
+                raise LLMInvocationError("Duplicate or unrealistic candidates detected for scenario")
             unique.append(candidate)
             seen_texts.append(candidate_text)
 

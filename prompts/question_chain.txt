@@ -23,3 +23,6 @@
 - 目标年级：{grade_level}
 - 上下文摘要：{context_summary}
 - 用户反馈：{user_feedback}
+- 高权重意图：{creative_intent}
+- 决策摘要：{decision_summary}
+- 工作记忆：{working_memory_notes}

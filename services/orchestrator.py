@@ -2,13 +2,26 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from adapters.tracing import TraceManager
 from core.dependencies import STAGE_SEQUENCE
-from core.models import Candidate, DecisionResult, Explanation, Message, StageArtifact, Task, ToolSeed
+from core.models import (
+    Candidate,
+    CreativeContext,
+    DecisionResult,
+    EntryDecision,
+    Explanation,
+    IntentRevision,
+    Message,
+    StageArtifact,
+    Task,
+    ToolSeed,
+    WorkingMemory,
+)
 from core.types import ActionType, CandidateStatus, ConflictSeverity, EntryPoint, StageStatus, StageType
 from engine.decision import make_decision, next_required_stage
 from engine.flow_nodes import (
@@ -27,6 +40,7 @@ from services.task_store import InMemoryTaskStore, JsonPersistence
 from utils.serialization import to_jsonable
 from validators.activity_alignment import validate_activity_alignment
 from validators.simple import validate_non_empty
+from validators.scenario_realism import is_realistic
 from services.decision_messenger import build_decision_message
 
 
@@ -99,14 +113,27 @@ class Orchestrator:
             run_type="chain",
             inputs=payload,
             outputs={},
-            metadata={"task_id": task.task_id, "stage": stage_value, "action": f"flow:{name}"},
+            metadata={
+                "task_id": task.task_id,
+                "stage": stage_value,
+                "action": f"flow:{name}",
+                "trace_type": "stage_generation",
+            },
         )
 
     def create_task(
         self,
         entry_point: EntryPoint,
         entry_data: Dict[str, Any],
+        entry_decision: Optional[EntryDecision | Dict[str, Any]] = None,
     ) -> Tuple[Task, DecisionResult, Optional[StageArtifact]]:
+        if entry_point == EntryPoint.scenario:
+            scenario_text = entry_data.get("scenario") if isinstance(entry_data, dict) else None
+            if isinstance(scenario_text, dict):
+                scenario_text = scenario_text.get("scenario")
+            if isinstance(scenario_text, str) and scenario_text.strip():
+                if not is_realistic(scenario_text):
+                    raise ValueError("Scenario must be realistic and grounded in real-life contexts.")
         completed_stages = [StageType.tool_seed] if entry_point == EntryPoint.tool_seed else []
         task = Task(
             entry_point=entry_point,
@@ -115,6 +142,8 @@ class Orchestrator:
             current_stage=StageType.scenario,
             completed_stages=completed_stages,
             artifacts={},
+            creative_context=self._build_creative_context(entry_point, entry_data),
+            working_memory=WorkingMemory(focus="entry"),
         )
 
         trace_root_id = self.tracer.start_root(
@@ -141,6 +170,30 @@ class Orchestrator:
             )
             task = self._emit_event(task, task_created_event, sse_event="task_updated")
             self._trace_flow(task, "entry", entry_node(task))
+            if entry_decision is not None:
+                normalized = (
+                    entry_decision
+                    if isinstance(entry_decision, EntryDecision)
+                    else EntryDecision(**entry_decision)
+                )
+                message = Message(
+                    role="system",
+                    text=f"Entry decision: {normalized.chosen_entry_point.value} ({normalized.confidence:.2f})",
+                    stage=None,
+                    kind="entry_decision",
+                    entry_decision=normalized,
+                )
+                task = self._emit_event(
+                    task,
+                    Event(
+                        type="message_emitted",
+                        task_id=task.task_id,
+                        stage=None,
+                        payload={"message": message.model_dump()},
+                    ),
+                    sse_event="message",
+                    sse_payload={"role": message.role, "text": message.text, "stage": None},
+                )
 
             decision_target = next_required_stage(task) or task.current_stage
             decision = make_decision(task, target_stage=decision_target, requested_action="create_task")
@@ -285,6 +338,9 @@ class Orchestrator:
                     sse_event="message",
                     sse_payload={"role": "system", "text": "Feedback recorded."},
                 )
+                intent_update = self._extract_intent_change(feedback)
+                if intent_update:
+                    task = self._emit_intent_update(task, intent_update, trigger=feedback)
 
                 if artifact and should_force_exit(artifact.iteration_count):
                     recommended = self._recommend_candidate(artifact)
@@ -621,6 +677,63 @@ class Orchestrator:
         )
         task = self._finalize_stage(task, StageType.scenario)
 
+    def _build_creative_context(self, entry_point: EntryPoint, entry_data: Dict[str, Any]) -> CreativeContext:
+        original_intent = ""
+        constraints: Dict[str, Any] = {}
+        if entry_point == EntryPoint.tool_seed and isinstance(entry_data, dict):
+            original_intent = entry_data.get("user_intent") or entry_data.get("tool_name") or ""
+            constraints = entry_data.get("constraints") or {}
+        elif isinstance(entry_data, dict):
+            scenario_text = entry_data.get("scenario")
+            if isinstance(scenario_text, dict):
+                scenario_text = scenario_text.get("scenario", "")
+            original_intent = scenario_text or entry_data.get("user_intent") or ""
+            constraints = entry_data.get("constraints") or {}
+        key_constraints: List[str] = []
+        anchor_concepts: List[str] = []
+        for key in ("topic", "grade", "duration", "classroom_mode", "classroom_context"):
+            value = constraints.get(key) if isinstance(constraints, dict) else None
+            if value:
+                key_constraints.append(f"{key}:{value}")
+        topic = constraints.get("topic") if isinstance(constraints, dict) else None
+        if isinstance(topic, str) and topic:
+            anchor_concepts.append(topic)
+        return CreativeContext(
+            original_intent=original_intent or "",
+            key_constraints=key_constraints,
+            anchor_concepts=anchor_concepts,
+        )
+
+    def _extract_intent_change(self, text: str) -> Optional[str]:
+        if not text:
+            return None
+        for keyword in ("修改意图", "调整意图", "变更意图", "意图改为", "意图改成"):
+            if keyword in text:
+                parts = re.split(r"[:：]", text, maxsplit=1)
+                if len(parts) == 2 and parts[1].strip():
+                    return parts[1].strip()
+                tokens = text.split()
+                if len(tokens) > 1:
+                    return tokens[-1].strip()
+                return None
+        return None
+
+    def _emit_intent_update(self, task: Task, new_intent: str, trigger: str) -> Task:
+        before = task.creative_context.original_intent
+        revision = IntentRevision(trigger=trigger, before=before, after=new_intent, user_confirmed=True)
+        event = Event(
+            type="intent_updated",
+            task_id=task.task_id,
+            stage=task.current_stage,
+            payload={
+                "before": before,
+                "after": new_intent,
+                "trigger": trigger,
+                "revision": revision.model_dump(),
+            },
+        )
+        return self._emit_event(task, event, sse_event="task_updated")
+
     def _finalize_stage(self, task: Task, stage: StageType) -> Task:
         self._trace_flow(task, "stage_finalize", stage_finalize_node(task))
         next_stage = self._compute_next_stage(task, stage)
@@ -687,7 +800,12 @@ class Orchestrator:
             run_type="tool",
             inputs={"stage": stage.value, "feedback": feedback or ""},
             outputs={"count": len(candidates)},
-            metadata={"task_id": task.task_id, "stage": stage.value, "action": "generate_candidates"},
+            metadata={
+                "task_id": task.task_id,
+                "stage": stage.value,
+                "action": "generate_candidates",
+                "trace_type": "stage_generation",
+            },
             start_time=start_time,
             end_time=end_time,
         )
@@ -814,7 +932,12 @@ class Orchestrator:
             run_type="tool",
             inputs={"stage": stage.value, "candidates": len(candidates)},
             outputs={"conflicts": len(validation.conflicts), "warnings": len(validation.warnings)},
-            metadata={"task_id": task.task_id, "stage": stage.value, "action": "validate"},
+            metadata={
+                "task_id": task.task_id,
+                "stage": stage.value,
+                "action": "validate",
+                "trace_type": "stage_generation",
+            },
         )
 
     def _emit_decision(self, task: Task, decision: DecisionResult) -> Task:
@@ -824,7 +947,12 @@ class Orchestrator:
             run_type="chain",
             inputs={"stage": task.current_stage.value},
             outputs={"direction": decision.direction, "next_stage": decision.next_stage.value if decision.next_stage else None},
-            metadata={"task_id": task.task_id, "stage": task.current_stage.value, "action": "decision"},
+            metadata={
+                "task_id": task.task_id,
+                "stage": task.current_stage.value,
+                "action": "decision",
+                "trace_type": "stage_generation",
+            },
         )
         event = Event(
             type="decision_emitted",
@@ -839,6 +967,7 @@ class Orchestrator:
             text=message_text,
             stage=task.current_stage,
             kind="decision",
+            mode=task.dialogue_state.value if hasattr(task, "dialogue_state") else "generating",
         )
         task = self._emit_event(
             task,

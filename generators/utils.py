@@ -119,7 +119,60 @@ def normalize_options(payload: Any) -> List[Dict[str, Any]]:
     raise ValueError("Invalid options payload")
 
 
-def get_prompt_context(tool_seed: ToolSeed) -> Dict[str, Any]:
+def _truncate(text: str, limit: int = 160) -> str:
+    if not text:
+        return ""
+    cleaned = str(text).replace("\n", " ").strip()
+    return cleaned[:limit]
+
+
+def _summarize_decision(entry: Any) -> str:
+    if not isinstance(entry, dict):
+        return _truncate(str(entry))
+    if entry.get("type") == "intent_updated":
+        before = entry.get("before", "")
+        after = entry.get("after", "")
+        return _truncate(f"intent: {before} -> {after}")
+    direction = entry.get("direction")
+    next_stage = entry.get("next_stage")
+    if isinstance(next_stage, dict):
+        next_stage = next_stage.get("value") or next_stage.get("stage") or ""
+    if direction:
+        return _truncate(f"decision: {direction} {next_stage}".strip())
+    if entry.get("type"):
+        return _truncate(f"{entry.get('type')}: {entry}")
+    return _truncate(str(entry))
+
+
+def _summarize_decision_history(history: List[Dict[str, Any]], limit: int = 3) -> str:
+    if not history:
+        return "none"
+    items = [_summarize_decision(item) for item in history[-limit:]]
+    return " | ".join([item for item in items if item]) or "none"
+
+
+def _build_creative_intent(task: Optional[Task]) -> str:
+    if not task:
+        return "none"
+    context = task.creative_context
+    parts: List[str] = []
+    if context.original_intent:
+        parts.append(f"intent:{context.original_intent}")
+    if context.anchor_concepts:
+        parts.append(f"anchors:{', '.join(context.anchor_concepts[:5])}")
+    if context.key_constraints:
+        parts.append(f"constraints:{', '.join(context.key_constraints[:5])}")
+    return " | ".join(parts) if parts else "none"
+
+
+def _summarize_working_memory(task: Optional[Task], limit: int = 3) -> str:
+    if not task:
+        return "none"
+    notes = task.working_memory.notes[-limit:]
+    return " | ".join([_truncate(note, 120) for note in notes if note]) or "none"
+
+
+def get_prompt_context(tool_seed: ToolSeed, task: Optional[Task] = None) -> Dict[str, Any]:
     constraints = tool_seed.constraints or {}
     return {
         "topic": constraints.get("topic") or tool_seed.user_intent or tool_seed.tool_name,
@@ -130,4 +183,9 @@ def get_prompt_context(tool_seed: ToolSeed) -> Dict[str, Any]:
         "tool_constraints": constraints.get("tool_constraints", ""),
         "classroom_mode": constraints.get("classroom_mode", "normal"),
         "classroom_context": constraints.get("classroom_context", ""),
+        "creative_intent": _build_creative_intent(task),
+        "decision_summary": _summarize_decision_history(
+            task.decision_history if task else []
+        ),
+        "working_memory_notes": _summarize_working_memory(task),
     }
