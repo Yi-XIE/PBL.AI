@@ -108,6 +108,7 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     message: str
     task_id: Optional[str] = None
+    intake: Optional[Dict[str, Any]] = None
 
 
 class ChatResponse(BaseModel):
@@ -215,7 +216,11 @@ async def chat_entry(request: ChatRequest) -> ChatResponse:
         session = chat_store.create()
 
     try:
-        result = handle_chat_message(session=session, message=request.message)
+        result = handle_chat_message(
+            session=session,
+            message=request.message,
+            intake=request.intake,
+        )
     except LLMNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except LLMInvocationError as exc:

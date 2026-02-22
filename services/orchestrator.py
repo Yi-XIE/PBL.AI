@@ -142,9 +142,6 @@ class Orchestrator:
             task = self._emit_event(task, task_created_event, sse_event="task_updated")
             self._trace_flow(task, "entry", entry_node(task))
 
-            if entry_point == EntryPoint.scenario:
-                self._bootstrap_scenario_from_entry(task, entry_data)
-
             decision_target = next_required_stage(task) or task.current_stage
             decision = make_decision(task, target_stage=decision_target, requested_action="create_task")
             task = self._emit_decision(task, decision)
@@ -288,9 +285,60 @@ class Orchestrator:
                     sse_event="message",
                     sse_payload={"role": "system", "text": "Feedback recorded."},
                 )
+
+                if artifact and should_force_exit(artifact.iteration_count):
+                    recommended = self._recommend_candidate(artifact)
+                    constraints = {"force_exit": True}
+                    details = [f"MAX_ITERATIONS={MAX_ITERATIONS}"]
+                    user_message = "Iteration limit reached. Please select a candidate to proceed."
+                    if recommended:
+                        constraints.update(
+                            {
+                                "recommended_candidate_id": recommended.id,
+                                "recommended_title": recommended.title,
+                                "recommended_alignment_score": recommended.alignment_score,
+                            }
+                        )
+                        details.append(f"Recommended: {recommended.id} - {recommended.title}")
+                        user_message = (
+                            "Iteration limit reached. Recommended candidate "
+                            f"{recommended.id}: {recommended.title}. Please confirm selection."
+                        )
+                    decision = DecisionResult(
+                        next_stage=stage,
+                        direction="force_exit",
+                        explanation=Explanation(
+                            summary="Maximum iterations reached.",
+                            details=details,
+                        ),
+                        user_message=user_message,
+                        constraints=constraints,
+                    )
+                    task = self._emit_decision(task, decision)
+                    return task, decision, artifact
+
+                command = candidate_stage_node(task, stage)
+                self._trace_flow(
+                    task,
+                    "candidate_stage",
+                    {"stage": command.stage.value, "count": command.count},
+                )
+                candidates = self._generate_candidates(
+                    task,
+                    command.stage,
+                    feedback=feedback,
+                    count=command.count,
+                )
+                task, current_artifact = self._apply_candidates(
+                    task,
+                    command.stage,
+                    candidates,
+                    regenerate=True,
+                )
+                self._run_validators(task, command.stage, candidates)
                 decision = make_decision(task, target_stage=stage, requested_action=action_type.value)
                 task = self._emit_decision(task, decision)
-                return task, decision, task.artifacts.get(stage)
+                return task, decision, current_artifact
 
             if action_type == ActionType.regenerate_candidates:
                 if artifact and should_force_exit(artifact.iteration_count):
@@ -361,9 +409,79 @@ class Orchestrator:
                     sse_event="task_updated",
                 )
                 self._run_validators(task, stage, artifact.candidates)
-                decision = make_decision(task, target_stage=stage, requested_action=action_type.value)
+                if not self._can_finalize(task, stage):
+                    blocking = [
+                        c for c in task.conflicts.get(stage, [])
+                        if c.severity == ConflictSeverity.blocking and not c.resolved
+                    ]
+                    decision = DecisionResult(
+                        next_stage=stage,
+                        direction="stay",
+                        explanation=Explanation(
+                            summary="Finalize conditions not met.",
+                            details=["Resolve blocking conflicts before moving on."],
+                        ),
+                        user_message="Selection saved. Resolve blocking conflicts to proceed.",
+                    )
+                    task = self._emit_decision(task, decision)
+                    if blocking:
+                        conflict = blocking[0]
+                        options_text = " | ".join(
+                            [
+                                f"{opt.option}:{opt.title}"
+                                for opt in conflict.conflict_options
+                            ]
+                        )
+                        message_text = (
+                            f"Blocking conflict: {conflict.summary}. "
+                            f"Options: {options_text}. Reply with option letter to resolve."
+                        )
+                        message = Message(
+                            role="assistant",
+                            text=message_text,
+                            stage=stage,
+                            kind="conflict",
+                        )
+                        task = self._emit_event(
+                            task,
+                            Event(
+                                type="message_emitted",
+                                task_id=task.task_id,
+                                stage=stage,
+                                payload={"message": message.model_dump()},
+                            ),
+                            sse_event="message",
+                            sse_payload={
+                                "role": message.role,
+                                "text": message.text,
+                                "stage": message.stage.value if message.stage else None,
+                            },
+                        )
+                    return task, decision, task.artifacts.get(stage)
+
+                task = self._finalize_stage(task, stage)
+                decision = make_decision(
+                    task,
+                    target_stage=task.current_stage,
+                    requested_action="auto_finalize_after_select",
+                )
                 task = self._emit_decision(task, decision)
-                return task, decision, task.artifacts.get(stage)
+                current_artifact = None
+                if decision.direction == "forward" and decision.next_stage:
+                    command = candidate_stage_node(task, decision.next_stage)
+                    self._trace_flow(
+                        task,
+                        "candidate_stage",
+                        {"stage": command.stage.value, "count": command.count},
+                    )
+                    self._schedule_candidates(
+                        task.task_id,
+                        command.stage,
+                        feedback=None,
+                        count=command.count,
+                        regenerate=False,
+                    )
+                return task, decision, current_artifact
 
             if action_type == ActionType.finalize_stage:
                 if not self._can_finalize(task, stage):
@@ -389,19 +507,13 @@ class Orchestrator:
                         "candidate_stage",
                         {"stage": command.stage.value, "count": command.count},
                     )
-                    candidates = self._generate_candidates(
-                        task,
+                    self._schedule_candidates(
+                        task.task_id,
                         command.stage,
                         feedback=None,
                         count=command.count,
-                    )
-                    task, current_artifact = self._apply_candidates(
-                        task,
-                        command.stage,
-                        candidates,
                         regenerate=False,
                     )
-                    self._run_validators(task, command.stage, candidates)
                 return task, decision, current_artifact
 
             if action_type == ActionType.resolve_conflict:
@@ -422,6 +534,30 @@ class Orchestrator:
                     ),
                     sse_event="task_updated",
                 )
+                if self._can_finalize(task, stage):
+                    task = self._finalize_stage(task, stage)
+                    decision = make_decision(
+                        task,
+                        target_stage=task.current_stage,
+                        requested_action="auto_finalize_after_conflict",
+                    )
+                    task = self._emit_decision(task, decision)
+                    current_artifact = None
+                    if decision.direction == "forward" and decision.next_stage:
+                        command = candidate_stage_node(task, decision.next_stage)
+                        self._trace_flow(
+                            task,
+                            "candidate_stage",
+                            {"stage": command.stage.value, "count": command.count},
+                        )
+                        self._schedule_candidates(
+                            task.task_id,
+                            command.stage,
+                            feedback=None,
+                            count=command.count,
+                            regenerate=False,
+                        )
+                    return task, decision, current_artifact
                 decision = make_decision(task, target_stage=stage, requested_action=action_type.value)
                 task = self._emit_decision(task, decision)
                 return task, decision, task.artifacts.get(stage)
@@ -556,6 +692,38 @@ class Orchestrator:
             end_time=end_time,
         )
         return candidates
+
+    def _schedule_candidates(
+        self,
+        task_id: str,
+        stage: StageType,
+        feedback: Optional[str],
+        count: int,
+        regenerate: bool,
+    ) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            task = self.store.get(task_id)
+            if not task:
+                return
+            candidates = self._generate_candidates(task, stage, feedback=feedback, count=count)
+            task, _ = self._apply_candidates(task, stage, candidates, regenerate=regenerate)
+            self._run_validators(task, stage, candidates)
+            return
+
+        async def job() -> None:
+            task = self.store.get(task_id)
+            if not task:
+                return
+            candidates = await asyncio.to_thread(
+                self._generate_candidates, task, stage, feedback, count
+            )
+            latest = self.store.get(task_id) or task
+            latest, _ = self._apply_candidates(latest, stage, candidates, regenerate=regenerate)
+            self._run_validators(latest, stage, candidates)
+
+        loop.create_task(job())
 
     def _apply_candidates(
         self,

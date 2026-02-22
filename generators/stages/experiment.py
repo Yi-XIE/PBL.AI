@@ -7,16 +7,22 @@ from datetime import datetime, timezone
 from adapters.llm import LLMInvocationError, get_llm
 from core.models import Candidate, Task
 from core.types import CandidateStatus, StageType
+from generators.diversity import collect_avoid_candidates, is_duplicate, summarize
 from generators.utils import (
     build_prompt,
     constraints_to_applied_list,
     get_selected_candidate,
     get_prompt_context,
     get_tool_seed,
+    extract_json,
     load_prompt_template,
     normalize_derived_from,
+    normalize_options,
     to_candidate_payload,
 )
+
+
+DISTINCTNESS_RULES = "Each option must be clearly different in experiment design and materials. Do not paraphrase."
 
 
 class ExperimentGenerator:
@@ -28,55 +34,52 @@ class ExperimentGenerator:
         prompt = build_prompt(template)
         prompt_context = get_prompt_context(tool_seed)
         llm = get_llm()
+        avoid_candidates = collect_avoid_candidates(task, StageType.experiment)
+
+        raw_options = self._invoke_options(
+            prompt,
+            llm,
+            driving_question=driving_question,
+            activity_summary=activity_summary,
+            prompt_context=prompt_context,
+            count=count,
+            feedback=feedback,
+            avoid_candidates=avoid_candidates,
+            derived_from=self._derived_from(task, driving_question),
+        )
+        raw_options = self._ensure_unique(
+            raw_options,
+            count=count,
+            prompt=prompt,
+            llm=llm,
+            driving_question=driving_question,
+            activity_summary=activity_summary,
+            prompt_context=prompt_context,
+            feedback=feedback,
+            avoid_candidates=avoid_candidates,
+            derived_from=self._derived_from(task, driving_question),
+        )
 
         raw_candidates: List[dict] = []
-        for index in range(count):
-            hint = f"Provide option {index + 1} with a distinct angle."
-            feedback_text = f"{feedback}; {hint}" if feedback else hint
-            derived_from = ["activity"]
-            if driving_question:
-                derived_from.append("driving_question")
-            if task.entry_point.value == "tool_seed":
-                derived_from.append("tool_seed")
-            try:
-                chain = prompt | llm
-                safety_constraints = prompt_context["knowledge_snippets"].get("safety_constraints", [])
-                if isinstance(safety_constraints, list):
-                    safety_str = "\n".join(f"- {item}" for item in safety_constraints)
-                else:
-                    safety_str = str(safety_constraints)
-                result = chain.invoke(
-                    {
-                        "topic": prompt_context["topic"],
-                        "grade_level": prompt_context["grade_level"],
-                        "driving_question": driving_question,
-                        "activity_summary": activity_summary,
-                        "context_summary": prompt_context["context_summary"],
-                        "knowledge_snippets": prompt_context["knowledge_snippets"].get("grade_rules", ""),
-                        "safety_constraints": safety_str,
-                        "classroom_mode": prompt_context["classroom_mode"],
-                        "classroom_context": prompt_context["classroom_context"] or "standard classroom",
-                        "user_feedback": feedback_text or "none",
-                    }
-                )
-                text = result.content or ""
-                raw_candidates.append(
-                    {
-                        "id": chr(65 + index),
-                        "title": self._extract_title(text) or f"Experiment Plan {chr(65 + index)}",
-                        "experiment": text,
-                        "rationale": "",
-                        "derived_from": derived_from,
-                        "alignment_score": 0.0,
-                        "generation_context": {
-                            "based_on": derived_from,
-                            "constraints_applied": constraints_to_applied_list(tool_seed.constraints),
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                        },
-                    }
-                )
-            except Exception as exc:
-                raise LLMInvocationError("LLM invocation failed for experiment") from exc
+        derived_from = self._derived_from(task, driving_question)
+        for index, raw in enumerate(raw_options):
+            candidate_id = chr(65 + index)
+            text = raw.get("experiment") or raw.get("title") or ""
+            raw_candidates.append(
+                {
+                    "id": candidate_id,
+                    "title": self._extract_title(text) or f"Experiment Plan {candidate_id}",
+                    "experiment": text,
+                    "rationale": "",
+                    "derived_from": derived_from,
+                    "alignment_score": 0.0,
+                    "generation_context": {
+                        "based_on": derived_from,
+                        "constraints_applied": constraints_to_applied_list(tool_seed.constraints),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
+                }
+            )
 
         return [self._to_candidate(raw) for raw in raw_candidates]
 
@@ -91,6 +94,14 @@ class ExperimentGenerator:
         if selected and "activity" in selected.content:
             return selected.content.get("activity", "")
         return ""
+
+    def _derived_from(self, task: Task, driving_question: str) -> List[str]:
+        derived_from = ["activity"]
+        if driving_question:
+            derived_from.append("driving_question")
+        if task.entry_point.value == "tool_seed":
+            derived_from.append("tool_seed")
+        return derived_from
 
     def _template_raw(
         self,
@@ -135,3 +146,132 @@ class ExperimentGenerator:
             alignment_score=raw.get("alignment_score", 0.0),
             generation_context=raw.get("generation_context", {}),
         )
+
+    def _format_avoid(self, avoid_candidates: List[str]) -> str:
+        if not avoid_candidates:
+            return "none"
+        return "\n".join(f"- {summarize(item)}" for item in avoid_candidates if item)
+
+    def _invoke_options(
+        self,
+        prompt,
+        llm,
+        *,
+        driving_question: str,
+        activity_summary: str,
+        prompt_context: dict,
+        count: int,
+        feedback: Optional[str],
+        avoid_candidates: List[str],
+        derived_from: List[str],
+        force_rewrite: bool = False,
+    ) -> List[dict]:
+        feedback_text = feedback or "none"
+        if force_rewrite:
+            feedback_text = f"{feedback_text}; rewrite with a clearly different angle."
+        try:
+            chain = prompt | llm
+            safety_constraints = prompt_context["knowledge_snippets"].get("safety_constraints", [])
+            if isinstance(safety_constraints, list):
+                safety_str = "\n".join(f"- {item}" for item in safety_constraints)
+            else:
+                safety_str = str(safety_constraints)
+            result = chain.invoke(
+                {
+                    "topic": prompt_context["topic"],
+                    "grade_level": prompt_context["grade_level"],
+                    "driving_question": driving_question,
+                    "activity_summary": activity_summary,
+                    "context_summary": prompt_context["context_summary"],
+                    "knowledge_snippets": prompt_context["knowledge_snippets"].get("grade_rules", ""),
+                    "safety_constraints": safety_str,
+                    "classroom_mode": prompt_context["classroom_mode"],
+                    "classroom_context": prompt_context["classroom_context"] or "standard classroom",
+                    "user_feedback": feedback_text,
+                    "option_count": count,
+                    "avoid_candidates": self._format_avoid(avoid_candidates),
+                    "distinctness_rules": DISTINCTNESS_RULES,
+                    "derived_from": ", ".join(derived_from),
+                }
+            )
+            payload = extract_json(result.content or "")
+            return normalize_options(payload)
+        except Exception as exc:
+            raise LLMInvocationError("LLM invocation failed for experiment") from exc
+
+    def _option_text(self, raw: dict) -> str:
+        return raw.get("experiment") or raw.get("title") or ""
+
+    def _ensure_unique(
+        self,
+        raw_options: List[dict],
+        *,
+        count: int,
+        prompt,
+        llm,
+        driving_question: str,
+        activity_summary: str,
+        prompt_context: dict,
+        feedback: Optional[str],
+        avoid_candidates: List[str],
+        derived_from: List[str],
+    ) -> List[dict]:
+        unique: List[dict] = []
+        seen_texts: List[str] = list(avoid_candidates)
+
+        for raw in raw_options:
+            if len(unique) >= count:
+                break
+            text = self._option_text(raw)
+            if is_duplicate(text, seen_texts):
+                replacement = None
+                for _ in range(2):
+                    regenerated = self._invoke_options(
+                        prompt,
+                        llm,
+                        driving_question=driving_question,
+                        activity_summary=activity_summary,
+                        prompt_context=prompt_context,
+                        count=1,
+                        feedback=feedback,
+                        avoid_candidates=seen_texts,
+                        derived_from=derived_from,
+                        force_rewrite=True,
+                    )
+                    if regenerated:
+                        candidate = regenerated[0]
+                        candidate_text = self._option_text(candidate)
+                        if not is_duplicate(candidate_text, seen_texts):
+                            replacement = candidate
+                            text = candidate_text
+                            break
+                        seen_texts.append(candidate_text)
+                if replacement is None:
+                    raise LLMInvocationError("Duplicate candidates detected for experiment")
+                raw = replacement
+            unique.append(raw)
+            seen_texts.append(text)
+
+        while len(unique) < count:
+            regenerated = self._invoke_options(
+                prompt,
+                llm,
+                driving_question=driving_question,
+                activity_summary=activity_summary,
+                prompt_context=prompt_context,
+                count=1,
+                feedback=feedback,
+                avoid_candidates=seen_texts,
+                derived_from=derived_from,
+                force_rewrite=True,
+            )
+            if not regenerated:
+                raise LLMInvocationError("Insufficient candidates for experiment")
+            candidate = regenerated[0]
+            candidate_text = self._option_text(candidate)
+            if is_duplicate(candidate_text, seen_texts):
+                raise LLMInvocationError("Duplicate candidates detected for experiment")
+            unique.append(candidate)
+            seen_texts.append(candidate_text)
+
+        return unique

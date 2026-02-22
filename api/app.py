@@ -1,11 +1,14 @@
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from api.routes.tasks import router as tasks_router
 
+
+load_dotenv()
 
 app = FastAPI(title="PBL Studio V4 API")
 app.include_router(tasks_router, prefix="/api")

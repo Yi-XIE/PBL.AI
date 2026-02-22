@@ -16,21 +16,36 @@ def _is_required() -> bool:
     return os.getenv("LLM_REQUIRED", "true").lower() in {"1", "true", "yes", "on"}
 
 
-def get_llm() -> ChatOpenAI:
-    model_name = (
-        os.getenv("LLM_MODEL")
-        or os.getenv("OPENAI_MODEL")
-        or os.getenv("DEEPSEEK_MODEL")
-        or "gpt-4o-mini"
-    )
+def get_llm(purpose: Optional[str] = None) -> ChatOpenAI:
+    if purpose == "decision":
+        model_name = (
+            os.getenv("LLM_DECISION_MODEL")
+            or os.getenv("LLM_MODEL")
+            or os.getenv("QWEN_MODEL")
+            or os.getenv("OPENAI_MODEL")
+            or os.getenv("DEEPSEEK_MODEL")
+            or "gpt-4o-mini"
+        )
+    else:
+        model_name = (
+            os.getenv("LLM_MODEL")
+            or os.getenv("QWEN_MODEL")
+            or os.getenv("OPENAI_MODEL")
+            or os.getenv("DEEPSEEK_MODEL")
+            or "gpt-4o-mini"
+        )
     temperature = float(os.getenv("LLM_TEMPERATURE", "0.7"))
     openai_api_key: Optional[str] = (
-        os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
+        os.getenv("LLM_API_KEY")
+        or os.getenv("QWEN_API_KEY")
+        or os.getenv("OPENAI_API_KEY")
+        or os.getenv("DEEPSEEK_API_KEY")
     )
     openai_api_base: Optional[str] = (
-        os.getenv("OPENAI_BASE_URL")
+        os.getenv("LLM_BASE_URL")
+        or os.getenv("QWEN_BASE_URL")
+        or os.getenv("OPENAI_BASE_URL")
         or os.getenv("OPENAI_API_BASE")
-        or os.getenv("LLM_BASE_URL")
         or os.getenv("DEEPSEEK_BASE_URL")
     )
 

@@ -47,6 +47,11 @@
         box-sizing: border-box;
       }
 
+      html,
+      body {
+        height: 100%;
+      }
+
       body {
         margin: 0;
         font-family: var(--font-body);
@@ -56,6 +61,8 @@
           var(--bg);
         color: var(--text);
         min-height: 100vh;
+        height: 100vh;
+        overflow: hidden;
       }
 
       body::before {
@@ -74,7 +81,9 @@
         display: flex;
         flex-direction: column;
         gap: 16px;
-        min-height: 100vh;
+        min-height: 0;
+        height: 100%;
+        overflow: hidden;
         padding: 20px;
       }
 
@@ -162,11 +171,25 @@
 
       .chat-log {
         flex: 1;
+        min-height: 0;
         overflow: auto;
         display: flex;
         flex-direction: column;
         gap: 12px;
         padding-right: 4px;
+        scrollbar-color: transparent transparent;
+      }
+
+      .chat-log::-webkit-scrollbar {
+        width: 8px;
+      }
+
+      .chat-log::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .chat-log::-webkit-scrollbar-thumb {
+        background-color: transparent;
       }
 
       .message {
@@ -205,6 +228,49 @@
         background: rgba(255, 255, 255, 0.85);
         line-height: 1.5;
         white-space: pre-wrap;
+        font-size: 12px;
+      }
+
+      .message .bubble.thinking {
+        background: rgba(124, 58, 237, 0.1);
+        border-color: rgba(124, 58, 237, 0.22);
+      }
+
+      .thinking-dots {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        min-height: 16px;
+      }
+
+      .thinking-dots span {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: var(--muted);
+        opacity: 0.35;
+        animation: thinkingPulse 1.1s infinite ease-in-out;
+      }
+
+      .thinking-dots span:nth-child(2) {
+        animation-delay: 0.15s;
+      }
+
+      .thinking-dots span:nth-child(3) {
+        animation-delay: 0.3s;
+      }
+
+      @keyframes thinkingPulse {
+        0%,
+        80%,
+        100% {
+          transform: translateY(0);
+          opacity: 0.3;
+        }
+        40% {
+          transform: translateY(-4px);
+          opacity: 0.9;
+        }
       }
 
       .message.user .bubble {
@@ -227,6 +293,53 @@
         display: flex;
         flex-direction: column;
         gap: 10px;
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      .intake-form {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 12px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.8);
+      }
+
+      .form-row {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .form-row label {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .form-row input,
+      .form-row select,
+      .form-row textarea {
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: #ffffff;
+        color: var(--text);
+        padding: 8px 10px;
+        font-size: 13px;
+        font-family: var(--font-body);
+      }
+
+      .form-hint {
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .form-actions {
+        display: flex;
+        justify-content: flex-end;
       }
 
       .input-wrap {
@@ -341,6 +454,7 @@
         flex-direction: column;
         gap: 10px;
         overflow: auto;
+        min-height: 0;
         padding-right: 4px;
       }
 
@@ -366,43 +480,76 @@
         background: rgba(45, 212, 191, 0.12);
       }
 
-      .candidate-card .title {
+      .candidate-content {
+        font-size: 13px;
+        font-family: var(--font-body);
+        line-height: 1.55;
+      }
+
+      .markdown {
+        font-family: var(--font-body);
+        font-size: 13px;
+      }
+
+      .candidate-actions {
         display: flex;
-        align-items: center;
+        justify-content: flex-end;
         gap: 8px;
+        margin-top: 4px;
+      }
+
+      .markdown h1,
+      .markdown h2,
+      .markdown h3,
+      .markdown h4 {
+        margin: 0 0 8px;
+        font-family: var(--font-body);
+        font-size: 13px;
         font-weight: 600;
       }
 
-      .candidate-card .tag {
-        font-size: 11px;
-        border-radius: 8px;
-        padding: 2px 6px;
-        background: rgba(15, 23, 42, 0.06);
-        border: 1px solid rgba(15, 23, 42, 0.12);
+      .markdown p {
+        margin: 0 0 8px;
+      }
+
+      .markdown ul,
+      .markdown ol {
+        margin: 6px 0 10px 18px;
+        padding: 0;
+      }
+
+      .markdown li {
+        margin-bottom: 4px;
+      }
+
+      .markdown blockquote {
+        margin: 8px 0;
+        padding-left: 10px;
+        border-left: 2px solid var(--border);
+        color: var(--muted);
+      }
+
+      .markdown code {
         font-family: var(--font-mono);
-      }
-
-      .candidate-card .preview {
         font-size: 12px;
-        color: var(--muted);
-        line-height: 1.4;
+        background: rgba(15, 23, 42, 0.06);
+        padding: 2px 6px;
+        border-radius: 6px;
       }
 
-      .candidate-card .meta {
-        font-size: 11px;
-        color: var(--muted);
-        display: flex;
-        gap: 8px;
-      }
-
-      .candidate-card .actions {
-        display: flex;
-        gap: 6px;
+      .markdown pre {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        background: rgba(15, 23, 42, 0.06);
+        padding: 10px;
+        border-radius: 10px;
+        overflow-x: auto;
       }
 
       .detail-box {
         flex: 1;
         overflow: auto;
+        min-height: 0;
         padding-right: 4px;
         display: flex;
         flex-direction: column;
@@ -481,11 +628,12 @@
         }
       }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   </head>
   <body>
     <div class="app">
       <header class="topbar">
-        <div class="brand">PBL Studio V4 — Copilot Console</div>
+        <div class="brand">Sci-Tech Course Copilot — Your AI Partner in Project-Based Learning</div>
         <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle theme">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
             <circle cx="12" cy="12" r="4"></circle>
@@ -502,11 +650,42 @@
             <div class="subtle">LLM decides entry point · all notifications here</div>
           </div>
           <div id="chatLog" class="chat-log"></div>
-          <div class="composer">
+          <div id="intakeForm" class="intake-form">
+            <div class="form-row">
+              <label for="intakeKnowledge">知识点</label>
+              <input id="intakeKnowledge" type="text" placeholder="例如：KNN 分类、聚类、数据可视化" />
+            </div>
+            <div class="form-row">
+              <label for="intakeLessonCount">课时（每节 40 分钟）</label>
+              <input id="intakeLessonCount" type="number" min="1" value="1" />
+              <div class="form-hint">总时长将按课时 × 40 分钟计算</div>
+            </div>
+            <div class="form-row">
+              <label for="intakeAgeGroup">学生年龄段</label>
+              <select id="intakeAgeGroup">
+                <option value="">请选择</option>
+                <option value="小学低">小学低年级</option>
+                <option value="小学高">小学高年级</option>
+                <option value="初中">初中</option>
+                <option value="高中">高中</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label for="intakeClassroom">教室条件</label>
+              <select id="intakeClassroom">
+                <option value="">请选择</option>
+                <option value="常规教室">常规教室</option>
+                <option value="机房">机房</option>
+                <option value="通识课实验室">通识课实验室</option>
+              </select>
+            </div>
+            <div class="form-actions">
+              <button id="intakeSubmit" type="button">开始</button>
+            </div>
+          </div>
+          <div id="chatComposer" class="composer hidden">
             <div class="input-wrap">
-              <textarea
-                id="chatInput"
-                placeholder="Describe your goal. Example: 我想用 Orange 做 KNN 分类教学，时长 80 分钟。"></textarea>
+              <textarea id="chatInput" placeholder=""></textarea>
               <button id="sendBtn" class="primary send-btn" aria-label="Send">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                   <path d="M3 11l18-8-8 18-2-7-7-3z"></path>
@@ -541,6 +720,13 @@
       const stageStatusLabel = document.getElementById("stageStatusLabel");
       const stageTrack = document.getElementById("stageTrack");
       const chatLog = document.getElementById("chatLog");
+      const intakeForm = document.getElementById("intakeForm");
+      const intakeSubmit = document.getElementById("intakeSubmit");
+      const intakeKnowledge = document.getElementById("intakeKnowledge");
+      const intakeLessonCount = document.getElementById("intakeLessonCount");
+      const intakeAgeGroup = document.getElementById("intakeAgeGroup");
+      const intakeClassroom = document.getElementById("intakeClassroom");
+      const chatComposer = document.getElementById("chatComposer");
       const chatInput = document.getElementById("chatInput");
       const sendBtn = document.getElementById("sendBtn");
       const candidateList = document.getElementById("candidateList");
@@ -557,20 +743,170 @@
       let eventSource = null;
       let renderedMessageCount = 0;
       let currentPlan = null;
+      let pendingAssistant = null;
+      let typingQueue = Promise.resolve();
+      let thinkingTimeout = null;
+      let isBusy = false;
 
-      function addChatMessage(role, text, stage = null) {
+      function scrollChatToBottom() {
+        chatLog.scrollTop = chatLog.scrollHeight;
+      }
+
+      function buildThinkingDots() {
+        const dots = document.createElement("div");
+        dots.className = "thinking-dots";
+        for (let i = 0; i < 3; i += 1) {
+          const dot = document.createElement("span");
+          dots.appendChild(dot);
+        }
+        return dots;
+      }
+
+      function createMessage(role, text, stage = null, options = {}) {
         const wrap = document.createElement("div");
         wrap.className = `message ${role}`;
+        if (options.thinking) wrap.classList.add("thinking");
         const meta = document.createElement("div");
         meta.className = "meta";
-        meta.textContent = `${role}${stage ? " · " + stage : ""}`;
+        meta.textContent = formatMeta(role, stage);
         const bubble = document.createElement("div");
         bubble.className = "bubble";
-        bubble.textContent = text;
+        if (options.thinking) {
+          bubble.classList.add("thinking");
+          bubble.appendChild(buildThinkingDots());
+        } else {
+          bubble.textContent = text || "";
+        }
         wrap.appendChild(meta);
         wrap.appendChild(bubble);
-        chatLog.appendChild(wrap);
-        chatLog.scrollTop = chatLog.scrollHeight;
+        return { wrap, bubble, meta };
+      }
+
+      function addChatMessage(role, text, stage = null, options = {}) {
+        const message = createMessage(role, text, stage, options);
+        chatLog.appendChild(message.wrap);
+        scrollChatToBottom();
+        return message;
+      }
+
+      function formatMeta(role, stage = null) {
+        return `${role}${stage ? " · " + stage : ""}`;
+      }
+
+      function startThinking(stage = null) {
+        if (pendingAssistant) return;
+        pendingAssistant = addChatMessage("assistant", "", stage, { thinking: true });
+        if (thinkingTimeout) clearTimeout(thinkingTimeout);
+        thinkingTimeout = setTimeout(() => {
+          clearThinkingBubble();
+        }, 12000);
+      }
+
+      function consumeThinkingBubble() {
+        if (thinkingTimeout) {
+          clearTimeout(thinkingTimeout);
+          thinkingTimeout = null;
+        }
+        const target = pendingAssistant;
+        pendingAssistant = null;
+        return target;
+      }
+
+      function clearThinkingBubble() {
+        const target = consumeThinkingBubble();
+        if (target && target.wrap) {
+          target.wrap.remove();
+        }
+      }
+
+      function typewriter(bubble, text) {
+        const content = text || "";
+        const length = content.length;
+        const chunk = length > 800 ? 6 : length > 400 ? 4 : length > 200 ? 2 : 1;
+        bubble.textContent = "";
+        return new Promise((resolve) => {
+          let index = 0;
+          const step = () => {
+            bubble.textContent += content.slice(index, index + chunk);
+            index += chunk;
+            scrollChatToBottom();
+            if (index < length) {
+              setTimeout(step, 14);
+            } else {
+              resolve();
+            }
+          };
+          step();
+        });
+      }
+
+      function queueAssistantMessage(text, stage = null) {
+        const target = consumeThinkingBubble() || addChatMessage("assistant", "", stage);
+        target.meta.textContent = formatMeta("assistant", stage);
+        target.wrap.classList.remove("thinking");
+        target.bubble.classList.remove("thinking");
+        target.bubble.innerHTML = "";
+        typingQueue = typingQueue.then(() => typewriter(target.bubble, text || ""));
+      }
+
+      function setBusy(value) {
+        isBusy = value;
+        renderCandidates();
+      }
+
+      function showChatComposer() {
+        intakeForm.classList.add("hidden");
+        chatComposer.classList.remove("hidden");
+        chatInput.placeholder = "";
+        chatInput.focus();
+      }
+
+      function escapeHtml(text) {
+        return String(text)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      function renderMarkdown(text) {
+        if (!text) return "";
+        if (window.marked && typeof marked.parse === "function") {
+          marked.setOptions({ breaks: true });
+          return marked.parse(text);
+        }
+        return escapeHtml(text).replace(/\n/g, "<br/>");
+      }
+
+      function valueToMarkdown(value) {
+        if (value === null || value === undefined) return "";
+        if (Array.isArray(value)) {
+          return value.map((item, idx) => `${idx + 1}. ${item}`).join("\n");
+        }
+        if (typeof value === "object") {
+          return "```json\n" + JSON.stringify(value, null, 2) + "\n```";
+        }
+        return String(value);
+      }
+
+      function candidateContentToMarkdown(candidate) {
+        const content = candidate.content || {};
+        if (content.driving_question) {
+          let md = `### ${content.driving_question}`;
+          if (Array.isArray(content.question_chain) && content.question_chain.length) {
+            md += "\n\n**问题链**\n" + content.question_chain.map((q, i) => `${i + 1}. ${q}`).join("\n");
+          }
+          return md;
+        }
+        if (Array.isArray(content.question_chain) && content.question_chain.length) {
+          return content.question_chain.map((q, i) => `${i + 1}. ${q}`).join("\n");
+        }
+        if (content.scenario) return content.scenario;
+        if (content.activity) return content.activity;
+        if (content.experiment) return content.experiment;
+        if (typeof content === "string") return content;
+        return valueToMarkdown(content);
       }
 
       function renderStageTrack() {
@@ -589,7 +925,7 @@
 
       function updateLabels() {
         stageStatusLabel.textContent = task
-          ? `Stage status: ${task.stage_status || "-"}`
+          ? `Stage: ${task.current_stage || "-"}`
           : "No task yet";
         renderStageTrack();
       }
@@ -601,21 +937,9 @@
         updateLabels();
         renderCandidates();
         loadPlan(taskId);
-        syncMessagesFromTask();
-      }
-
-      function extractPreview(content) {
-        if (!content || typeof content !== "object") return "";
-        const keys = ["scenario", "driving_question", "question_chain", "activity", "experiment"];
-        for (const key of keys) {
-          if (content[key] !== undefined) {
-            const value = content[key];
-            if (Array.isArray(value)) return value.slice(0, 2).join(" / ");
-            if (typeof value === "string") return value.slice(0, 120);
-            return JSON.stringify(value).slice(0, 120);
-          }
+        if (!eventSource || renderedMessageCount === 0) {
+          syncMessagesFromTask();
         }
-        return JSON.stringify(content).slice(0, 120);
       }
 
       function renderCandidates() {
@@ -631,32 +955,31 @@
           if (cand.id === selectedCandidateId || cand.status === "selected") {
             card.classList.add("selected");
           }
-          card.onclick = () => {
-            selectedCandidateId = cand.id;
-            renderCandidates();
-            loadPlan(taskId);
-          };
-          const title = document.createElement("div");
-          title.className = "title";
-          title.innerHTML = `<span class="tag">${cand.id}</span>${cand.title || "Untitled"}`;
-          const preview = document.createElement("div");
-          preview.className = "preview";
-          preview.textContent = extractPreview(cand.content);
           const meta = document.createElement("div");
           meta.className = "meta";
+          meta.style.display = "none";
           meta.textContent = `status: ${cand.status} · alignment: ${cand.alignment_score}`;
+          const title = document.createElement("div");
+          title.className = "candidate-content markdown";
+          title.innerHTML = renderMarkdown(candidateContentToMarkdown(cand));
           const actions = document.createElement("div");
-          actions.className = "actions";
+          actions.className = "candidate-actions";
           const selectBtn = document.createElement("button");
-          selectBtn.textContent = "Select";
-          selectBtn.onclick = (evt) => {
+          selectBtn.textContent = `Select ${cand.id || ""}`.trim();
+          selectBtn.disabled = isBusy;
+          selectBtn.onclick = async (evt) => {
             evt.stopPropagation();
-            submitAction("select_candidate", { stage: currentStage, candidate_id: cand.id });
+            selectedCandidateId = cand.id;
+            startThinking(currentStage);
+            setBusy(true);
+            try {
+              await submitAction("select_candidate", { stage: currentStage, candidate_id: cand.id });
+            } finally {
+              setBusy(false);
+            }
           };
           actions.appendChild(selectBtn);
           card.appendChild(title);
-          card.appendChild(preview);
-          card.appendChild(meta);
           card.appendChild(actions);
           candidateList.appendChild(card);
         });
@@ -710,35 +1033,50 @@
           planBox.innerHTML = `<div class="subtle">No course plan yet.</div>`;
           return;
         }
-        planBox.innerHTML = "";
+        const stageLabels = {
+          scenario: "场景",
+          driving_question: "驱动问题",
+          question_chain: "问题链",
+          activity: "活动",
+          experiment: "实验",
+        };
+        const blocks = [];
         currentPlan.sections.forEach((section) => {
-          const stageTitle = (section.stage || "").replace("_", " ");
+          const stageTitle = stageLabels[section.stage] || (section.stage || "").replace("_", " ");
+          blocks.push(`### ${stageTitle}`);
           if (!section.content) {
-            const placeholder = document.createElement("div");
-            placeholder.className = "subtle";
-            placeholder.textContent = `${stageTitle}: waiting for selection`;
-            planBox.appendChild(placeholder);
+            blocks.push("_等待选择_");
             return;
           }
-          const title = section.title ? `${stageTitle} · ${section.title}` : stageTitle;
-          planBox.appendChild(createSection(title, section.content));
+          blocks.push(valueToMarkdown(section.content));
         });
+        planBox.innerHTML = `<div class="markdown">${renderMarkdown(blocks.join("\n\n"))}</div>`;
       }
 
-      function appendTaskMessage(message) {
-        addChatMessage(message.role || "assistant", message.text || "", message.stage || null);
+      function appendTaskMessage(message, options = {}) {
+        const role = message.role || "assistant";
+        const text = message.text || "";
+        const stage = message.stage || null;
+        if (role === "assistant" && options.stream !== false) {
+          queueAssistantMessage(text, stage);
+        } else {
+          clearThinkingBubble();
+          addChatMessage(role, text, stage);
+        }
         renderedMessageCount += 1;
       }
 
       function syncMessagesFromTask() {
         if (!task || !Array.isArray(task.messages)) return;
         for (let i = renderedMessageCount; i < task.messages.length; i += 1) {
-          appendTaskMessage(task.messages[i]);
+          appendTaskMessage(task.messages[i], { stream: false });
         }
       }
 
       async function submitAction(actionType, payload) {
         if (!taskId || !currentStage) {
+          clearThinkingBubble();
+          setBusy(false);
           addChatMessage("system", "No active task or stage.");
           return;
         }
@@ -749,6 +1087,8 @@
         });
         if (!response.ok) {
           const msg = await response.text();
+          clearThinkingBubble();
+          setBusy(false);
           addChatMessage("system", `Action error: ${msg}`);
           return;
         }
@@ -794,6 +1134,8 @@
             updateLabels();
             renderCandidates();
             loadPlan(taskId);
+            setBusy(false);
+            clearThinkingBubble();
           }
         });
         eventSource.addEventListener("task_updated", (evt) => {
@@ -807,22 +1149,27 @@
           appendTaskMessage({ role: data.role, text: data.text, stage: data.stage });
         });
         eventSource.addEventListener("error", (evt) => {
+          clearThinkingBubble();
+          setBusy(false);
           addChatMessage("system", "SSE connection error.");
         });
       }
 
-      async function sendChatMessage(text) {
+      async function sendChatMessage(text, intake = null) {
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             session_id: sessionId,
-            message: text,
+            message: text ?? "",
             task_id: taskId,
+            intake: intake || undefined,
           }),
         });
         if (!response.ok) {
           const msg = await response.text();
+          clearThinkingBubble();
+          setBusy(false);
           addChatMessage("system", `Chat error: ${msg}`);
           return;
         }
@@ -830,7 +1177,9 @@
         sessionId = data.session_id;
         updateLabels();
         if (data.assistant_message) {
-          addChatMessage("assistant", data.assistant_message);
+          queueAssistantMessage(data.assistant_message, null);
+        } else {
+          clearThinkingBubble();
         }
         if (data.status === "ready" && data.task_id) {
           taskId = data.task_id;
@@ -842,20 +1191,34 @@
       }
 
       function parseCommand(text) {
-        const lower = text.trim().toLowerCase();
+        const trimmed = text.trim();
+        const lower = trimmed.toLowerCase();
         if (lower.startsWith("/select")) {
-          const parts = text.trim().split(/\s+/);
+          const parts = trimmed.split(/\s+/);
           const id = parts[1] ? parts[1].toUpperCase() : null;
           if (id) return { action: "select_candidate", candidate_id: id };
         }
+        if (/^[abc]$/i.test(trimmed) && hasUnresolvedConflict()) {
+          return { action: "resolve_conflict", option: trimmed.toUpperCase() };
+        }
         return null;
+      }
+
+      function hasUnresolvedConflict() {
+        if (!task || !currentStage || !task.conflicts) return false;
+        const conflicts = task.conflicts[currentStage] || [];
+        return conflicts.some((conflict) => !conflict.resolved);
       }
 
       async function handleSend() {
         const text = chatInput.value.trim();
         if (!text) return;
         chatInput.value = "";
+        if (chatInput.placeholder) {
+          chatInput.placeholder = "";
+        }
         addChatMessage("user", text, currentStage);
+        startThinking(currentStage);
 
         if (!taskId) {
           await sendChatMessage(text);
@@ -866,6 +1229,8 @@
         if (command) {
           if (command.action === "select_candidate") {
             await submitAction(command.action, { stage: currentStage, candidate_id: command.candidate_id });
+          } else if (command.action === "resolve_conflict") {
+            await submitAction(command.action, { stage: currentStage, option: command.option });
           } else {
             await submitAction(command.action, { stage: currentStage });
           }
@@ -882,6 +1247,26 @@
           handleSend();
         }
       });
+
+      intakeSubmit.onclick = async () => {
+        const knowledge_point = intakeKnowledge.value.trim();
+        const lesson_count = parseInt(intakeLessonCount.value || "1", 10);
+        const age_group = intakeAgeGroup.value.trim();
+        const classroom_type = intakeClassroom.value.trim();
+        if (!knowledge_point || !age_group || !classroom_type) {
+          addChatMessage("system", "请填写完整的知识点、年龄段与教室条件。");
+          return;
+        }
+        const intake = {
+          knowledge_point,
+          lesson_count: Number.isNaN(lesson_count) ? 1 : Math.max(1, lesson_count),
+          age_group,
+          classroom_type,
+        };
+        showChatComposer();
+        startThinking(null);
+        await sendChatMessage("", intake);
+      };
 
       function applyTheme(theme) {
         document.body.dataset.theme = theme;
@@ -904,10 +1289,7 @@
       const savedTheme = localStorage.getItem("pbl_theme") || "light";
       applyTheme(savedTheme);
 
-      addChatMessage(
-        "system",
-        "Describe your goal. I will decide the entry point and ask for missing JSON."
-      );
+      addChatMessage("system", "请先填写左侧课程信息表单。");
       updateLabels();
     </script>
   </body>
