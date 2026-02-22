@@ -48,6 +48,11 @@ def get_llm(purpose: Optional[str] = None) -> ChatOpenAI:
         or os.getenv("OPENAI_API_BASE")
         or os.getenv("DEEPSEEK_BASE_URL")
     )
+    openai_proxy: Optional[str] = (
+        os.getenv("LLM_PROXY")
+        or os.getenv("HTTPS_PROXY")
+        or os.getenv("HTTP_PROXY")
+    )
 
     if _is_required() and not openai_api_key:
         raise LLMNotConfigured("LLM not configured")
@@ -60,6 +65,8 @@ def get_llm(purpose: Optional[str] = None) -> ChatOpenAI:
         kwargs["openai_api_key"] = openai_api_key
     if openai_api_base:
         kwargs["openai_api_base"] = openai_api_base
+    if openai_proxy:
+        kwargs["openai_proxy"] = openai_proxy
 
     return ChatOpenAI(**kwargs)
 

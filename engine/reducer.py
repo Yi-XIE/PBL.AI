@@ -226,6 +226,45 @@ def apply_event(task: Task, event: Event) -> Task:
         _append_working_memory(task, "", focus=f"select:{event.stage.value}")
         return task
 
+    if event.type == "cascade_prompted":
+        task.pending_cascade = event.payload
+        task.decision_history.append(
+            {"type": "cascade_prompted", "payload": event.payload}
+        )
+        return task
+
+    if event.type == "cascade_reset":
+        origin = event.payload.get("origin_stage")
+        downstream = event.payload.get("downstream_stages", [])
+        stages: List[StageType] = []
+        for item in downstream:
+            try:
+                stages.append(StageType(item) if isinstance(item, str) else item)
+            except Exception:
+                continue
+        for stage in stages:
+            task.artifacts.pop(stage, None)
+            task.conflicts.pop(stage, None)
+        task.completed_stages = [s for s in task.completed_stages if s not in stages]
+        if stages:
+            task.current_stage = stages[0]
+            task.stage_status = StageStatus.initialized
+            _append_working_memory(task, "", focus=f"stage:{stages[0].value}")
+        task.status = "in_progress"
+        task.pending_cascade = None
+        task.dialogue_state = DialogueState.generating
+        task.decision_history.append(
+            {"type": "cascade_reset", "origin_stage": origin, "downstream": [s.value for s in stages]}
+        )
+        return task
+
+    if event.type == "cascade_skipped":
+        task.pending_cascade = None
+        task.decision_history.append(
+            {"type": "cascade_skipped", "payload": event.payload}
+        )
+        return task
+
     if event.type == "message_emitted":
         payload = event.payload.get("message") if event.payload else None
         if payload:

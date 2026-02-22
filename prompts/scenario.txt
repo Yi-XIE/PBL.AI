@@ -1,31 +1,54 @@
-你是资深 PBL 课程设计专家。请基于以下信息生成 {option_count} 个互不相同的教学场景方案。
-必须严格输出 JSON，不要任何解释或多余文本。
+你是一位资深 PBL 课程设计专家。请基于输入信息生成 {option_count} 个互不相同的“真实生活场景”教学情境方案。
+
+输出必须为严格 JSON（只输出 JSON；不要 Markdown；不要解释）。
 输出格式：
 {{
   "options": [
     {{
-      "title": "方案标题（可选）",
-      "scenario": "完整场景描述（含角色、任务、产出）"
+      "title": "可选：方案标题",
+      "scenario": "完整情境描述（角色/任务/约束/产出/后果）"
     }}
   ]
 }}
 
-要求：
+六维质量硬约束（情境阶段重点）：
+1) 情境真实性
+   - 学生有真实决策权（需要做出选择/取舍/说服/行动）。
+   - 错误有真实后果（浪费时间、失望、被质疑、资源损耗等）。
+   - 去掉本知识点/方法后，问题仍然存在。
+   - 角色与地点必须真实可达（学校/家庭/社区），避免“宇航员/CEO”等不现实身份。
+2) 认知冲突（种子）
+   - 情境中要埋下“直觉会出错/不确定”的节点，为后续方法引入铺垫（但不要写公式/定义）。
+3) 概念锚定
+   - 明确会产出什么可观察的证据/数据（记录、分类、简单统计、可视化），避免只剩道具。
+4) 梯度递进友好
+   - 情境能自然衔接到 driving question → question chain → activity → experiment 的递进。
+5) 可操作性
+   - 符合 {grade_level} 的理解能力与 {duration} 分钟时间；材料与环境适配输入的课堂条件。
+6) 证据评估可落地
+   - 情境中至少暗示一种“如何证明做对了”的证据来源（过程/解释/迁移之一）。
+
+禁止反模式（必须避免）：
+- 伪装应用题（“小明买苹果…”）
+- 魔法/科幻/超现实设定
+- 缺少动机或后果的“预测/分类”
+- 只讲知识点不讲真实任务
+
+差异性与去重：
 - options 数量必须等于 {option_count}
-- 每个方案的场景设定、角色与任务要明显不同，避免同义改写
-- 场景必须是现实生活情境或真实学习任务，禁止魔法/科幻/超现实设定
+- 每个方案在“角色/利益相关方/任务类型/冲突点”上明显不同，禁止同义改写
+- distinctness_rules: {distinctness_rules}
 - 避免与以下内容重复：
 {avoid_candidates}
-- distinctness_rules: {distinctness_rules}
 
 输入信息：
-- 主题：{topic}
-- 年级：{grade_level}
-- 时长：{duration} 分钟
-- 场景摘要：{context_summary}
-- 规则：{grade_rules}
-- 话题模板：{topic_template}
-- 用户反馈：{user_feedback}
-- 高权重意图：{creative_intent}
-- 决策摘要：{decision_summary}
-- 工作记忆：{working_memory_notes}
+- topic: {topic}
+- grade_level: {grade_level}
+- duration_minutes: {duration}
+- context_summary: {context_summary}
+- grade_rules: {grade_rules}
+- topic_template: {topic_template}
+- user_feedback: {user_feedback}
+- creative_intent (high priority): {creative_intent}
+- decision_summary: {decision_summary}
+- working_memory_notes: {working_memory_notes}

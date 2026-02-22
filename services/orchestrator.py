@@ -42,6 +42,7 @@ from validators.activity_alignment import validate_activity_alignment
 from validators.simple import validate_non_empty
 from validators.scenario_realism import is_realistic
 from services.decision_messenger import build_decision_message
+from core.dependencies import STAGE_SEQUENCE
 
 
 class Orchestrator:
@@ -753,6 +754,107 @@ class Orchestrator:
                 Event(type="task_completed", task_id=task.task_id, stage=stage, payload={}),
                 sse_event="task_updated",
             )
+        downstream = self._downstream_completed(task, stage)
+        if downstream and not task.pending_cascade:
+            payload = {
+                "origin_stage": stage.value,
+                "downstream_stages": [s.value for s in downstream],
+            }
+            task = self._emit_event(
+                task,
+                Event(
+                    type="cascade_prompted",
+                    task_id=task.task_id,
+                    stage=stage,
+                    payload=payload,
+                ),
+                sse_event="task_updated",
+            )
+            labels = "、".join([self._stage_label(s) for s in downstream])
+            message_text = (
+                f"你刚修改了【{self._stage_label(stage)}】。"
+                f"是否需要联级修改下游阶段（{labels}）并重新生成课程方案？回复“是/否”。"
+            )
+            message = Message(
+                role="assistant",
+                text=message_text,
+                stage=stage,
+                kind="cascade",
+                mode=task.dialogue_state.value if hasattr(task, "dialogue_state") else "generating",
+            )
+            task = self._emit_event(
+                task,
+                Event(
+                    type="message_emitted",
+                    task_id=task.task_id,
+                    stage=stage,
+                    payload={"message": message.model_dump()},
+                ),
+                sse_event="message",
+                sse_payload={
+                    "role": message.role,
+                    "text": message.text,
+                    "stage": message.stage.value if message.stage else None,
+                },
+            )
+        return task
+
+    def apply_cascade(
+        self,
+        task_id: str,
+        origin_stage: StageType,
+        downstream_stages: List[StageType],
+    ) -> Task:
+        task = self.store.get(task_id)
+        if not task:
+            raise ValueError("Task not found")
+        payload = {
+            "origin_stage": origin_stage.value,
+            "downstream_stages": [s.value for s in downstream_stages],
+        }
+        task = self._emit_event(
+            task,
+            Event(
+                type="cascade_reset",
+                task_id=task.task_id,
+                stage=origin_stage,
+                payload=payload,
+            ),
+            sse_event="task_updated",
+        )
+        if downstream_stages:
+            next_stage = downstream_stages[0]
+            message_text = (
+                f"已开始联级修改下游阶段，正在生成【{self._stage_label(next_stage)}】候选。"
+            )
+            message = Message(
+                role="assistant",
+                text=message_text,
+                stage=next_stage,
+                kind="cascade",
+            )
+            task = self._emit_event(
+                task,
+                Event(
+                    type="message_emitted",
+                    task_id=task.task_id,
+                    stage=next_stage,
+                    payload={"message": message.model_dump()},
+                ),
+                sse_event="message",
+                sse_payload={
+                    "role": message.role,
+                    "text": message.text,
+                    "stage": message.stage.value if message.stage else None,
+                },
+            )
+            self._schedule_candidates(
+                task.task_id,
+                next_stage,
+                feedback=None,
+                count=3,
+                regenerate=True,
+            )
         return task
 
     def _compute_next_stage(self, task: Task, stage: StageType) -> Optional[StageType]:
@@ -766,6 +868,24 @@ class Orchestrator:
                 return next_stage
             index += 1
         return None
+
+    def _downstream_completed(self, task: Task, stage: StageType) -> List[StageType]:
+        if stage not in STAGE_SEQUENCE:
+            return []
+        index = STAGE_SEQUENCE.index(stage) + 1
+        downstream = STAGE_SEQUENCE[index:]
+        return [s for s in downstream if s in task.completed_stages]
+
+    def _stage_label(self, stage: StageType) -> str:
+        labels = {
+            StageType.scenario: "场景",
+            StageType.driving_question: "驱动问题",
+            StageType.question_chain: "问题链",
+            StageType.activity: "活动",
+            StageType.experiment: "实验",
+            StageType.tool_seed: "工具",
+        }
+        return labels.get(stage, stage.value)
 
     def _can_finalize(self, task: Task, stage: StageType) -> bool:
         artifact = task.artifacts.get(stage)

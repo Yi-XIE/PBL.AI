@@ -1,29 +1,39 @@
-你是资深 PBL 课程设计专家。请根据教学场景生成 {option_count} 个不同的 Driving Question 方案。
-必须严格输出 JSON，不要任何解释或多余文本。
+你是一位资深 PBL 课程设计专家。请根据“教学情境”生成 {option_count} 个互不相同的 Driving Question 方案。
+
+输出必须为严格 JSON（只输出 JSON；不要 Markdown；不要解释）。
 输出格式：
 {{
   "options": [
     {{
-      "title": "方案标题（可选）",
-      "driving_question": "驱动问题（20-25 字以内）",
-      "question_chain": ["子问题1", "子问题2", "子问题3"]
+      "title": "可选：短标题",
+      "driving_question": "驱动问题（建议 0-25 字，中文问句）",
+      "question_chain": [
+        "子问题1（直觉判断/快速决策）",
+        "子问题2（数据/反例 → 引发认知冲突）",
+        "子问题3（方法建构 → 证据评估/迁移应用）"
+      ]
     }}
   ]
 }}
 
-要求：
+六维质量硬约束（本阶段重点）：
+- 情境真实性：Driving Question 必须绑定 scenario 的真实约束与利益相关者，让学生觉得“跟我有关”。
+- 认知冲突：question_chain 必须包含“直觉判断 → 直觉不够用/会出错 → 需要更好的方法”的结构。
+- 概念锚定：至少 1 个子问题要锚定核心概念（如：相似/距离/分类依据/判断标准），避免只谈道具操作。
+- 证据评估：至少 1 个子问题要求明确“用什么证据判断更好/更可靠”。
+
+差异性与去重：
 - options 数量必须等于 {option_count}
-- 每个方案角度明显不同（视角/对象/情境/行动路径）
-- question_chain 必须恰好 3 条，并且可探究
+- 每个方案的动词、对象、行动路径明显不同，禁止同义改写
+- distinctness_rules: {distinctness_rules}
 - 避免与以下内容重复：
 {avoid_candidates}
-- distinctness_rules: {distinctness_rules}
 
 输入信息：
-- 教学场景：{scenario}
-- 目标年级：{grade_level}
-- 上下文摘要：{context_summary}
-- 用户反馈：{user_feedback}
-- 高权重意图：{creative_intent}
-- 决策摘要：{decision_summary}
-- 工作记忆：{working_memory_notes}
+- scenario: {scenario}
+- grade_level: {grade_level}
+- context_summary: {context_summary}
+- user_feedback: {user_feedback}
+- creative_intent (high priority): {creative_intent}
+- decision_summary: {decision_summary}
+- working_memory_notes: {working_memory_notes}

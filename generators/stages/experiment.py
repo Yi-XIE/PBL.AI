@@ -29,6 +29,7 @@ class ExperimentGenerator:
     def generate(self, task: Task, count: int = 3, feedback: Optional[str] = None) -> List[Candidate]:
         tool_seed = get_tool_seed(task)
         driving_question = self._get_driving_question(task)
+        question_chain = self._get_question_chain(task)
         activity_summary = self._get_activity_summary(task)
         template = load_prompt_template("experiment.txt")
         prompt = build_prompt(template)
@@ -40,6 +41,7 @@ class ExperimentGenerator:
             prompt,
             llm,
             driving_question=driving_question,
+            question_chain=question_chain,
             activity_summary=activity_summary,
             prompt_context=prompt_context,
             count=count,
@@ -53,6 +55,7 @@ class ExperimentGenerator:
             prompt=prompt,
             llm=llm,
             driving_question=driving_question,
+            question_chain=question_chain,
             activity_summary=activity_summary,
             prompt_context=prompt_context,
             feedback=feedback,
@@ -94,6 +97,19 @@ class ExperimentGenerator:
         if selected and "activity" in selected.content:
             return selected.content.get("activity", "")
         return ""
+
+    def _get_question_chain(self, task: Task) -> list:
+        selected = get_selected_candidate(task, StageType.question_chain)
+        if selected:
+            chain = selected.content.get("question_chain", [])
+            if isinstance(chain, list):
+                return chain
+        selected_dq = get_selected_candidate(task, StageType.driving_question)
+        if selected_dq:
+            chain = selected_dq.content.get("question_chain", [])
+            if isinstance(chain, list):
+                return chain
+        return []
 
     def _derived_from(self, task: Task, driving_question: str) -> List[str]:
         derived_from = ["activity"]
@@ -158,6 +174,7 @@ class ExperimentGenerator:
         llm,
         *,
         driving_question: str,
+        question_chain: list,
         activity_summary: str,
         prompt_context: dict,
         count: int,
@@ -180,7 +197,10 @@ class ExperimentGenerator:
                 {
                     "topic": prompt_context["topic"],
                     "grade_level": prompt_context["grade_level"],
+                    "duration": prompt_context["duration"],
                     "driving_question": driving_question,
+                    "question_chain": "\n".join(f"{i+1}. {q}" for i, q in enumerate((question_chain or [])[:3])) or "none",
+                    "focus_sub_question": str((question_chain or ["", "", ""])[2]),
                     "activity_summary": activity_summary,
                     "context_summary": prompt_context["context_summary"],
                     "knowledge_snippets": prompt_context["knowledge_snippets"].get("grade_rules", ""),
@@ -217,6 +237,7 @@ class ExperimentGenerator:
         prompt,
         llm,
         driving_question: str,
+        question_chain: list,
         activity_summary: str,
         prompt_context: dict,
         feedback: Optional[str],
@@ -237,6 +258,7 @@ class ExperimentGenerator:
                         prompt,
                         llm,
                         driving_question=driving_question,
+                        question_chain=question_chain,
                         activity_summary=activity_summary,
                         prompt_context=prompt_context,
                         count=1,
@@ -264,6 +286,7 @@ class ExperimentGenerator:
                 prompt,
                 llm,
                 driving_question=driving_question,
+                question_chain=question_chain,
                 activity_summary=activity_summary,
                 prompt_context=prompt_context,
                 count=1,

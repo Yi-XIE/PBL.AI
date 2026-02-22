@@ -4,7 +4,7 @@ from typing import List
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from adapters.llm import LLMInvocationError, get_llm
+from adapters.llm import get_llm
 from core.models import DecisionResult, Task
 from core.types import StageType
 from utils.intake import intake_to_constraints
@@ -33,7 +33,6 @@ def _summarize_candidates(task: Task, stage: StageType) -> str:
 
 
 def build_decision_message(task: Task, decision: DecisionResult) -> str:
-    llm = get_llm(purpose="decision")
     stage = task.current_stage
     candidates_summary = _summarize_candidates(task, stage)
     conflicts = task.conflicts.get(stage, [])
@@ -48,46 +47,62 @@ def build_decision_message(task: Task, decision: DecisionResult) -> str:
     classroom = constraints.get("classroom_context", "") or constraints.get("classroom_mode", "")
 
     template = (
-        "你是项目式学习课程助手。请根据当前决策生成一段简短、自然、不过于模板化的对话。\n"
-        "要求：\n"
-        "1) 语气自然、有引导性，中文输出。\n"
-        "2) 如果有候选方案，请引导用户选择或给反馈。\n"
-        "3) 若 direction=backward_completion，说明需要先完成的阶段。\n"
-        "4) 若 direction=forward 且 next_stage 存在，说明准备进入该阶段。\n"
-        "5) 结合年级与教室条件调整语气深浅（如有）。\n"
-        "6) 不要输出 JSON，只输出一到两句对话消息。\n\n"
-        "决策信息：\n"
+        "You are a project-based learning co-creator assistant. Reply in short, natural Chinese or English (2-4 sentences).\n"
+        "Must include: (1) current stage and next step.\n"
+        "(2) If direction=backward_completion or force_exit, clearly tell the user what to do.\n"
+        "(3) If candidates exist, guess the user's preferred style and ask if they want other styles.\n\n"
+        "Decision:\n"
         "direction: {direction}\n"
         "next_stage: {next_stage}\n"
         "user_message: {user_message}\n"
         "summary: {summary}\n\n"
-        "教学上下文：\n"
-        "年级: {grade}\n"
-        "教室: {classroom}\n\n"
-        "当前阶段: {stage}\n"
-        "候选摘要:\n{candidates}\n\n"
-        "冲突摘要:\n{conflicts}\n"
+        "Classroom:\n"
+        "grade: {grade}\n"
+        "classroom: {classroom}\n\n"
+        "stage: {stage}\n"
+        "candidates:\n{candidates}\n\n"
+        "conflicts:\n{conflicts}\n"
     )
 
     prompt = ChatPromptTemplate.from_template(template)
+    payload = {
+        "direction": decision.direction,
+        "next_stage": decision.next_stage.value if decision.next_stage else "",
+        "user_message": decision.user_message or "",
+        "summary": decision.explanation.summary if decision.explanation else "",
+        "grade": grade or "unknown",
+        "classroom": classroom or "unknown",
+        "stage": stage.value if stage else "",
+        "candidates": candidates_summary or "none",
+        "conflicts": conflict_summary or "none",
+    }
+
+    llm_candidates = []
     try:
-        chain = prompt | llm
-        result = chain.invoke(
-            {
-                "direction": decision.direction,
-                "next_stage": decision.next_stage.value if decision.next_stage else "",
-                "user_message": decision.user_message or "",
-                "summary": decision.explanation.summary if decision.explanation else "",
-                "grade": grade or "unknown",
-                "classroom": classroom or "unknown",
-                "stage": stage.value if stage else "",
-                "candidates": candidates_summary or "none",
-                "conflicts": conflict_summary or "none",
-            }
-        )
+        llm_candidates.append(get_llm(purpose="decision"))
     except Exception as exc:
-        raise LLMInvocationError("LLM invocation failed for decision message") from exc
-    return (result.content or "").strip()
+        pass
+    try:
+        llm_candidates.append(get_llm())
+    except Exception as exc:
+        pass
+
+    for llm in llm_candidates:
+        try:
+            chain = prompt | llm
+            result = chain.invoke(payload)
+            text = (result.content or "").strip()
+            if text:
+                return text
+        except Exception as exc:
+            pass
+
+    direction = (decision.direction or "").lower()
+    if direction in {"backward_completion", "require_previous"}:
+        return "我还缺少上一阶段的确认：请先在中间选择一个候选方案，我们再继续下一步。"
+    if direction in {"force_exit"}:
+        return "现在还不能继续：请先按提示解决冲突或补齐必要信息，然后我再推进后续环节。"
+    return "候选已准备好：请在中间选择你更喜欢的方案；也可以直接告诉我你想怎么改，我会据此再生成一轮。"
 
 
 __all__ = ["build_decision_message"]

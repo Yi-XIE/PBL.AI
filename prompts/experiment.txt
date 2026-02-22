@@ -1,35 +1,61 @@
-你是资深 PBL 课程设计专家。请基于课堂活动生成 {option_count} 个不同的实验/实践方案。
-必须严格输出 JSON，不要任何解释或多余文本。
-输出格式：
+You are a senior PBL course designer. Generate {option_count} DISTINCT experiment/practice plans based on the classroom activity.
+
+Output MUST be strict JSON ONLY (no Markdown wrapper, no commentary).
+
+IMPORTANT JSON RULE:
+- The "experiment" field MUST be a JSON string.
+- If you need new lines, use "\\n" inside the string. Do NOT output raw newlines inside the JSON string.
+
+Output format:
 {{
   "options": [
     {{
-      "title": "方案标题（可选）",
-      "experiment": "用 Markdown 描述实验流程（含材料、步骤、评价方式）"
+      "title": "optional short title",
+      "experiment": "# 实验/实践方案标题\\n...use \\\\n for line breaks..."
     }}
   ]
 }}
 
-要求：
-- options 数量必须等于 {option_count}
-- 实验设计与材料安排明显不同，避免同义改写
-- 与驱动问题和活动流程保持一致
-- 避免与以下内容重复：
-{avoid_candidates}
-- distinctness_rules: {distinctness_rules}
+Core alignment requirement:
+- The experiment MUST reinforce the core concept and provide evidence that answers the last sub-question (question_chain item 3) when available.
+- Include: prediction → test/collect evidence → explain → transfer.
 
-输入信息：
-- 主题：{topic}
-- 年级：{grade_level}
-- 驱动问题：{driving_question}
-- 活动摘要：{activity_summary}
-- 上下文摘要：{context_summary}
-- 年级规则：{knowledge_snippets}
-- 安全约束：{safety_constraints}
-- 班级模式：{classroom_mode}
-- 班级情境：{classroom_context}
-- 用户反馈：{user_feedback}
+80 minutes (two lessons) scheduling hint:
+- If duration_minutes == 80, assume the experiment happens in lesson 2 after Activity 3.
+- Keep it feasible within ~15-20 minutes + reflection.
+
+Evidence-based assessment (must be concrete):
+- Include explicit evidence collection for:
+  1) Process evidence (what they did / choices)
+  2) Explanation evidence (why they did it)
+  3) Transfer evidence (new case / new data)
+
+Operability constraints:
+- Simple materials, fast setup, clear steps.
+- Respect safety_constraints and classroom_mode/classroom_context.
+
+Diversity / anti-duplication:
+- options count must equal {option_count}.
+- Each option must be clearly different in experiment design, materials, or transfer scenario.
+- distinctness_rules: {distinctness_rules}
+- Avoid repeating any of the following:
+{avoid_candidates}
+
+Inputs:
+- topic: {topic}
+- grade_level: {grade_level}
+- duration_minutes: {duration}
+- driving_question: {driving_question}
+- question_chain: {question_chain}
+- focus_sub_question: {focus_sub_question}
+- activity_summary: {activity_summary}
+- context_summary: {context_summary}
+- grade_rules: {knowledge_snippets}
+- safety_constraints: {safety_constraints}
+- classroom_mode: {classroom_mode}
+- classroom_context: {classroom_context}
 - derived_from: {derived_from}
-- 高权重意图：{creative_intent}
-- 决策摘要：{decision_summary}
-- 工作记忆：{working_memory_notes}
+- user_feedback: {user_feedback}
+- creative_intent (high priority): {creative_intent}
+- decision_summary: {decision_summary}
+- working_memory_notes: {working_memory_notes}

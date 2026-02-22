@@ -58,7 +58,15 @@ class FakeChatModel(Runnable):
                         f"{theme} sub-question {letter}-2",
                         f"{theme} sub-question {letter}-3",
                     ],
-                    "activity": f"### {theme} Activity {letter}\n- Investigate {theme.lower()}\n- Prototype solution {suffix}",
+                    "activity": (
+                        f"### {theme} Activity {letter}\n"
+                        f"子问题1：{theme} quick intuition check\n"
+                        f"活动1：students make a quick choice and justify.\n"
+                        f"子问题2：{theme} counterexample / boundary\n"
+                        f"活动2：use data to show intuition can be wrong.\n"
+                        f"子问题3：{theme} method + evidence + transfer\n"
+                        f"活动3：build a simple method and test transfer.\n"
+                    ),
                     "experiment": f"### {theme} Experiment {letter}\n- Hypothesis for {theme.lower()}\n- Test scenario {suffix}",
                 }
             )

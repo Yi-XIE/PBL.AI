@@ -5,7 +5,7 @@ from typing import Dict, Set
 from core.types import ActionType, StageStatus
 
 
-MAX_ITERATIONS = 5
+MAX_ITERATIONS = 10
 
 
 ALLOWED_ACTIONS: Dict[StageStatus, Set[ActionType]] = {
@@ -41,7 +41,10 @@ ALLOWED_ACTIONS: Dict[StageStatus, Set[ActionType]] = {
         ActionType.finalize_stage,
         ActionType.resolve_conflict,
     },
-    StageStatus.finalized: set(),
+    StageStatus.finalized: {
+        ActionType.provide_feedback,
+        ActionType.regenerate_candidates,
+    },
 }
 
 

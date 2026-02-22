@@ -1,34 +1,66 @@
-你是资深 PBL 课程设计专家。请根据驱动问题与问题链生成 {option_count} 个不同的课堂活动方案。
-必须严格输出 JSON，不要任何解释或多余文本。
-输出格式：
+You are a senior PBL course designer. Generate {option_count} DISTINCT classroom activity plans based on the driving question and the 3 sub-questions.
+
+Output MUST be strict JSON ONLY (no Markdown wrapper, no commentary).
+
+IMPORTANT JSON RULE:
+- The "activity" field MUST be a JSON string.
+- If you need new lines, use "\\n" inside the string. Do NOT output raw newlines inside the JSON string.
+
+Output format:
 {{
   "options": [
     {{
-      "title": "方案标题（可选）",
-      "activity": "用 Markdown 描述完整活动流程（含时间分配、教师/学生任务、产出）"
+      "title": "optional short title",
+      "activity": "# 活动方案标题\\n...use \\\\n for line breaks..."
     }}
   ]
 }}
 
-要求：
-- options 数量必须等于 {option_count}
-- 活动流程与材料安排明显不同，避免同义改写
-- 与驱动问题和问题链保持一致
-- 避免与以下内容重复：
-{avoid_candidates}
-- distinctness_rules: {distinctness_rules}
+Core structural requirement (non-negotiable):
+- The activity plan MUST map 1:1 to the 3 sub-questions in question_chain.
+- You MUST include all three markers somewhere in the activity string: "子问题1", "子问题2", "子问题3".
+- Each sub-question must have its own corresponding activity block:
+  - 子问题1 → 活动1（解释/回答子问题1）
+  - 子问题2 → 活动2（解释/回答子问题2）
+  - 子问题3 → 活动3（解释/回答子问题3）
 
-输入信息：
-- 驱动问题：{driving_question}
-- 问题链：{question_chain}
-- 年级：{grade_level}
-- 时长：{duration} 分钟
-- 时长建议：{duration_guidelines}
-- 上下文摘要：{context_summary}
-- 年级规则：{knowledge_snippets}
-- 安全约束：{safety_constraints}
-- 工具限制：{tool_constraints}
-- 用户反馈：{user_feedback}
-- 高权重意图：{creative_intent}
-- 决策摘要：{decision_summary}
-- 工作记忆：{working_memory_notes}
+80 minutes (two lessons) scheduling rule:
+- If duration_minutes == 80, you MUST structure it as:
+  - 第一节课（40分钟）：子问题1+活动1；子问题2+活动2
+  - 第二节课（40分钟）：子问题3+活动3；然后进入实验（Experiment 阶段提供实验细节）
+- Do NOT compress all 3 activities into a single 40-minute lesson.
+
+Quality constraints (must satisfy the 6-dimension rubric):
+1) Context Authenticity: real role, real constraints, real consequences; no "fake word problems".
+2) Cognitive Conflict: before teaching any definition/formula, include intuition → counterevidence → "need a better method".
+3) Concept Anchoring: include 3 representations across the flow (physical / visual / symbolic) and a translation prompt between them.
+4) Progressive Complexity: 0-4 progression (experience→pattern→rule→transfer→reflection); transitions triggered by student difficulty.
+5) Operability: teacher prep < 15min; student steps ≤ 3 per micro-activity when possible; student exploration > 50%; include materials + timing.
+6) Evidence-Based Assessment: include concrete evidence collection for (process + explanation + transfer).
+
+Alignment requirements:
+- MUST align with driving_question and question_chain.
+- Ideally: map sub-question 1/2/3 to Activity 1/2/3 explicitly (copy the sub-question text into the header).
+- Follow safety constraints and tool constraints.
+
+Diversity / anti-duplication:
+- options count must equal {option_count}.
+- Each option must be clearly different in activity flow, materials, and student actions (not paraphrases).
+- distinctness_rules: {distinctness_rules}
+- Avoid repeating any of the following:
+{avoid_candidates}
+
+Inputs:
+- driving_question: {driving_question}
+- question_chain: {question_chain}
+- grade_level: {grade_level}
+- duration_minutes: {duration}
+- duration_guidelines: {duration_guidelines}
+- context_summary: {context_summary}
+- grade_rules: {knowledge_snippets}
+- safety_constraints: {safety_constraints}
+- tool_constraints: {tool_constraints}
+- user_feedback: {user_feedback}
+- creative_intent (high priority): {creative_intent}
+- decision_summary: {decision_summary}
+- working_memory_notes: {working_memory_notes}

@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from adapters.llm import LLMInvocationError, LLMNotConfigured
 from core.models import DecisionResult, EntryDecision, StageArtifact, Task, ToolSeed
-from core.types import ActionType, EntryPoint
+from core.types import ActionType, EntryPoint, StageType
 from services.chat_orchestrator import (
     ChatSessionStore,
     handle_chat_message,
@@ -280,6 +280,19 @@ async def chat_entry(request: ChatRequest) -> ChatResponse:
     except ValueError as exc:
         _log_chat_trace(task=task, session_id=session.session_id, message=request.message, error=str(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if task and result.get("cascade_action") == "confirm":
+        cascade = result.get("cascade") or {}
+        origin = cascade.get("origin_stage")
+        downstream = cascade.get("downstream_stages", [])
+        try:
+            origin_stage = StageType(origin) if origin else task.current_stage
+            downstream_stages = [
+                StageType(s) if isinstance(s, str) else s for s in downstream
+            ]
+            task = orchestrator.apply_cascade(task.task_id, origin_stage, downstream_stages)
+        except Exception:
+            pass
 
     status = result["status"]
     entry_point = result.get("entry_point")

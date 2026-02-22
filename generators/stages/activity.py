@@ -115,9 +115,9 @@ class ActivityGenerator:
         if duration == 80:
             return (
                 "- Total: 80 minutes (two sessions, 40+40)\n"
-                "- Session 1: Activity 1 + Activity 2 (with outputs)\n"
-                "- Session 2: Activity 3 + Experiment + Showcase\n"
-                "- Must map three activities to three sub-questions"
+                "- Session 1: Sub-question 1 + Activity 1; Sub-question 2 + Activity 2\n"
+                "- Session 2: Sub-question 3 + Activity 3; plus Experiment (separate stage)\n"
+                "- Must map three activities 1:1 to the three sub-questions"
             )
         if duration <= 45:
             return (
@@ -221,7 +221,18 @@ class ActivityGenerator:
 
     def _is_valid(self, raw: dict) -> bool:
         text = self._option_text(raw)
-        return bool(text and len(str(text).strip()) >= 20)
+        if not text or len(str(text).strip()) < 20:
+            return False
+        required_groups = [
+            ["子问题1", "Sub-question 1", "Q1"],
+            ["子问题2", "Sub-question 2", "Q2"],
+            ["子问题3", "Sub-question 3", "Q3"],
+        ]
+        normalized = str(text)
+        for group in required_groups:
+            if not any(token in normalized for token in group):
+                return False
+        return True
 
     def _ensure_unique(
         self,

@@ -63,7 +63,7 @@ class CreativeDialogueManager:
             result = chain.invoke({"text": prompt})
             data = _extract_json(result.content or "")
         except Exception as exc:
-            raise LLMInvocationError("LLM invocation failed for creative dialogue") from exc
+            raise LLMInvocationError(f"LLM invocation failed for creative dialogue: {exc}") from exc
 
         intent = str(data.get("intent") or "").strip()
         key_constraints = data.get("key_constraints") or []

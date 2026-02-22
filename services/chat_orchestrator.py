@@ -111,6 +111,36 @@ def _build_entry_question(intake: Dict[str, Any]) -> str:
         return "你希望从哪里开始？场景 / 工具 / 实验 / 活动 / 驱动问题"
 
 
+def _build_intake_intro(intake: Dict[str, Any]) -> str:
+    knowledge_point = intake.get("knowledge_point") or "the topic"
+    lesson_count = intake.get("lesson_count") or 1
+    age_group = intake.get("age_group") or ""
+    classroom_type = intake.get("classroom_type") or ""
+    prompt = (
+        "Please explain the knowledge point in 2-4 short sentences in Chinese."
+        " Then give 2-3 teaching suggestions tailored to the age group."
+        " End with one sentence that transitions to asking where to start.\n\n"
+        f"Topic: {knowledge_point}\n"
+        f"Lessons: {lesson_count}\n"
+        f"Age group: {age_group}\n"
+        f"Classroom: {classroom_type}\n"
+    )
+    try:
+        llm = get_llm(purpose="decision")
+        chain = ChatPromptTemplate.from_template("{text}") | llm
+        result = chain.invoke({"text": prompt})
+        content = (result.content or "").strip()
+        if content:
+            return content
+    except Exception:
+        pass
+    advice = " / ".join([t for t in [age_group, classroom_type] if t]) or "current classroom"
+    return (
+        f"For {knowledge_point}, start from real-life examples and highlight core concepts.\n"
+        f"Teaching tips: adapt to {advice}, use visuals, step-by-step explanation, and short practice.\n"
+        "Next, I will ask where you want to start."
+    )
+
 def _build_tool_seed_prompt(message: str, intake: Dict[str, Any], existing: Optional[Dict[str, Any]]) -> str:
     intake_text = json.dumps(intake, ensure_ascii=False)
     existing_text = json.dumps(existing or {}, ensure_ascii=False)
@@ -189,6 +219,19 @@ def _infer_tool_name(message: str) -> str:
     return "通用工具"
 
 
+
+def _parse_yes_no(message: str) -> Optional[str]:
+    if not message:
+        return None
+    text = message.strip().lower()
+    yes_terms = ["?", "?", "??", "??", "??", "?", "??", "???", "????", "???"]
+    no_terms = ["?", "?", "??", "???", "??", "????", "????", "????"]
+    if any(term in text for term in yes_terms):
+        return "yes"
+    if any(term in text for term in no_terms):
+        return "no"
+    return None
+
 def _extract_tool_seed_with_llm(
     message: str,
     intake: Dict[str, Any],
@@ -260,16 +303,14 @@ class ChatSessionStore:
 
 
 def handle_task_chat_message(*, task: Task, message: str) -> Dict[str, Any]:
-    text = (message or "").strip()
+    text = (message or '').strip()
     router = InteractionRouter()
     task.dialogue_state = router.route(text, task.messages, task.dialogue_state)
     task.working_memory.focus = task.dialogue_state.value
 
     last_decision = task.decision_history[-1] if task.decision_history else None
-    if last_decision and last_decision.get("type") == "clarification_requested":
-        task.decision_history.append(
-            {"type": "clarification_confirmed", "answer": text}
-        )
+    if last_decision and last_decision.get("type") == "clarification_requested" and text:
+        task.decision_history.append({"type": "clarification_confirmed", "answer": text})
 
     if text:
         task.messages.append(
@@ -282,12 +323,42 @@ def handle_task_chat_message(*, task: Task, message: str) -> Dict[str, Any]:
             )
         )
 
+    if task.pending_cascade and text:
+        decision = _parse_yes_no(text)
+        if decision == "yes":
+            assistant_message = "???????????????????????"
+            task.decision_history.append({"type": "cascade_confirmed", "origin": task.pending_cascade.get("origin_stage")})
+            task.messages.append(
+                Message(
+                    role="assistant",
+                    text=assistant_message,
+                    stage=task.current_stage,
+                    kind="cascade",
+                    mode=task.dialogue_state.value,
+                )
+            )
+            return {"status": "ask", "assistant_message": assistant_message, "cascade_action": "confirm", "cascade": task.pending_cascade}
+        if decision == "no":
+            assistant_message = "???????????????????????"
+            task.pending_cascade = None
+            task.decision_history.append({"type": "cascade_skipped"})
+            task.messages.append(
+                Message(
+                    role="assistant",
+                    text=assistant_message,
+                    stage=task.current_stage,
+                    kind="cascade",
+                    mode=task.dialogue_state.value,
+                )
+            )
+            return {"status": "ask", "assistant_message": assistant_message, "cascade_action": "skip"}
+
     intent_change = _extract_intent_change(text)
-        if intent_change is not None:
-            if not intent_change:
-                question = "请说明新的意图或主题。"
-                task.messages.append(
-                    Message(
+    if intent_change is not None:
+        if not intent_change:
+            question = "???????????"
+            task.messages.append(
+                Message(
                     role="assistant",
                     text=question,
                     stage=task.current_stage,
@@ -321,7 +392,7 @@ def handle_task_chat_message(*, task: Task, message: str) -> Dict[str, Any]:
             recent_messages=[m.text for m in task.messages[-6:] if isinstance(m, Message)],
         )
         if dialogue.get("needs_confirmation"):
-            question = dialogue.get("question") or "可以再具体一点吗？"
+            question = dialogue.get("question") or "?????????????????"
             task.decision_history.append(
                 {
                     "type": "clarification_requested",
@@ -376,7 +447,7 @@ def handle_task_chat_message(*, task: Task, message: str) -> Dict[str, Any]:
         task.working_memory.notes = task.working_memory.notes[-10:]
         task.working_memory.focus = "exploring"
 
-        assistant_message = "我已更新意图理解。若要推进，请选择候选或提交反馈。"
+        assistant_message = "?????????????????????"
         task.messages.append(
             Message(
                 role="assistant",
@@ -394,7 +465,7 @@ def handle_task_chat_message(*, task: Task, message: str) -> Dict[str, Any]:
 
     task.working_memory.focus = "generating"
 
-    assistant_message = "已收到。如果要推进流程，请在当前阶段选择候选或提交反馈。"
+    assistant_message = "????????????????????????"
     task.messages.append(
         Message(
             role="assistant",
@@ -405,8 +476,6 @@ def handle_task_chat_message(*, task: Task, message: str) -> Dict[str, Any]:
         )
     )
     return {"status": "ask", "assistant_message": assistant_message}
-
-
 def _finalize_tool_seed(
     tool_seed: Dict[str, Any],
     intake: Dict[str, Any],
@@ -539,12 +608,14 @@ def handle_chat_message(
         session.entry_asked = False
         session.tool_seed_partial = None
         session.tool_seed_ask_count = 0
+        intro = _build_intake_intro(normalized)
         question = _build_entry_question(normalized)
+        assistant_message = f"{intro}\n\n{question}".strip()
         session.entry_asked = True
-        session.append("assistant", question)
+        session.append("assistant", assistant_message)
         return {
             "status": "ask",
-            "assistant_message": question,
+            "assistant_message": assistant_message,
             "entry_point": None,
             "entry_data": None,
         }

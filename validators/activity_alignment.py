@@ -27,8 +27,18 @@ def validate_activity_alignment(
     if question_chain:
         hits = [q for q in question_chain if q and q in activity_text]
         if not hits:
-            missing_chain = True
-            warnings.append("Activity does not reflect the question chain.")
+            # Accept explicit sub-question markers as sufficient alignment.
+            marker_groups = [
+                ["子问题1", "Sub-question 1", "Q1"],
+                ["子问题2", "Sub-question 2", "Q2"],
+                ["子问题3", "Sub-question 3", "Q3"],
+            ]
+            normalized = activity_text or ""
+            if all(any(token in normalized for token in group) for group in marker_groups):
+                hits = ["markers"]
+            else:
+                missing_chain = True
+                warnings.append("Activity does not reflect the question chain.")
 
     tool_constraints = constraints.get("tool_constraints", "")
     if tool_constraints and tool_constraints not in activity_text:

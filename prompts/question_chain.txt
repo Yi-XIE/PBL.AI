@@ -1,28 +1,44 @@
-你是资深 PBL 课程设计专家。请根据 Driving Question 生成 {option_count} 组不同的问题链。
-必须严格输出 JSON，不要任何解释或多余文本。
-输出格式：
+You are a senior PBL course designer. Generate {option_count} DISTINCT question chains (each chain has exactly 3 sub-questions) for the given driving question.
+
+Output MUST be strict JSON ONLY (no Markdown wrapper, no commentary).
+Output format:
 {{
   "options": [
     {{
-      "title": "方案标题（可选）",
-      "question_chain": ["子问题1", "子问题2", "子问题3"]
+      "title": "optional short title",
+      "question_chain": [
+        "sub-question 1",
+        "sub-question 2",
+        "sub-question 3"
+      ]
     }}
   ]
 }}
 
-要求：
-- options 数量必须等于 {option_count}
-- 每组问题链的探究路径要明显不同
-- question_chain 必须恰好 3 条，并且可探究
-- 避免与以下内容重复：
-{avoid_candidates}
-- distinctness_rules: {distinctness_rules}
+Hard constraints:
+- options count MUST equal {option_count}.
+- Each question_chain MUST have exactly 3 investigable sub-questions.
+- The three sub-questions MUST be suitable to map 1:1 to three classroom activities (Activity 1/2/3).
 
-输入信息：
-- 驱动问题：{driving_question}
-- 目标年级：{grade_level}
-- 上下文摘要：{context_summary}
-- 用户反馈：{user_feedback}
-- 高权重意图：{creative_intent}
-- 决策摘要：{decision_summary}
-- 工作记忆：{working_memory_notes}
+Required structure (cognitive conflict + progression):
+- Q1 (experience / intuition): students make a quick intuitive judgment/decision.
+- Q2 (conflict / boundary): show why intuition is insufficient or can be wrong (data, counterexample, edge case).
+- Q3 (method / evidence / transfer): students construct a method and define what evidence makes it reliable; include a transfer test.
+
+Concept anchoring:
+- At least one sub-question must explicitly target the core concept (e.g., similarity / distance / rule / evidence), not just materials.
+
+Diversity / anti-duplication:
+- Each chain must be clearly different in inquiry path and evidence source (not paraphrases).
+- distinctness_rules: {distinctness_rules}
+- Avoid repeating any of the following:
+{avoid_candidates}
+
+Inputs:
+- driving_question: {driving_question}
+- grade_level: {grade_level}
+- context_summary: {context_summary}
+- user_feedback: {user_feedback}
+- creative_intent (high priority): {creative_intent}
+- decision_summary: {decision_summary}
+- working_memory_notes: {working_memory_notes}

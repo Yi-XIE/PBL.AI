@@ -225,15 +225,16 @@
         padding: 10px 12px;
         border-radius: 14px;
         border: 1px solid rgba(15, 23, 42, 0.08);
-        background: rgba(255, 255, 255, 0.85);
+        background: #ffffff;
+        color: #0f172a;
         line-height: 1.5;
         white-space: pre-wrap;
         font-size: 12px;
       }
 
       .message .bubble.thinking {
-        background: rgba(124, 58, 237, 0.1);
-        border-color: rgba(124, 58, 237, 0.22);
+        background: #ffffff;
+        border-color: rgba(15, 23, 42, 0.16);
       }
 
       .thinking-dots {
@@ -274,13 +275,15 @@
       }
 
       .message.user .bubble {
-        background: rgba(45, 212, 191, 0.14);
-        border-color: rgba(45, 212, 191, 0.4);
+        background: #0f172a;
+        border-color: #0f172a;
+        color: #ffffff;
       }
 
       .message.assistant .bubble {
-        background: rgba(124, 58, 237, 0.12);
-        border-color: rgba(124, 58, 237, 0.28);
+        background: #ffffff;
+        border-color: rgba(15, 23, 42, 0.08);
+        color: #0f172a;
       }
 
       .message.system .bubble {
@@ -820,6 +823,8 @@
       let taskId = null;
       let task = null;
       let currentStage = null;
+      let historyViewStage = null;
+      let historyViewIndex = null;
       let artifacts = {};
       let selectedCandidateId = null;
       let eventSource = null;
@@ -866,7 +871,17 @@
 
       function addChatMessage(role, text, stage = null, options = {}) {
         if (role === "system") {
-          return null;
+          const lower = String(text || "").toLowerCase();
+          const shouldShow =
+            options.force ||
+            lower.includes("error") ||
+            lower.includes("failed") ||
+            String(text || "").includes("失败") ||
+            String(text || "").includes("连接");
+          if (!shouldShow) {
+            return null;
+          }
+          role = "assistant";
         }
         const message = createMessage(role, text, stage, options);
         chatLog.appendChild(message.wrap);
@@ -1003,8 +1018,53 @@
             pill.classList.add("done");
           }
           pill.textContent = stage.replace("_", " ");
+          pill.onclick = () => {
+            currentStage = stage;
+            setHistoryView(stage);
+            renderStageTrack();
+            renderCandidates();
+          };
           stageTrack.appendChild(pill);
         });
+      }
+
+      function setHistoryView(stage) {
+        const artifact = artifacts[stage];
+        const history = artifact && Array.isArray(artifact.history) ? artifact.history : [];
+        if (!history.length) {
+          historyViewStage = null;
+          historyViewIndex = null;
+          return;
+        }
+        if (historyViewStage !== stage) {
+          historyViewStage = stage;
+          historyViewIndex = history.length - 1;
+          return;
+        }
+        if (historyViewIndex > 0) {
+          historyViewIndex -= 1;
+        } else {
+          historyViewStage = null;
+          historyViewIndex = null;
+        }
+      }
+
+      function getCandidatesForStage(stage) {
+        const artifact = artifacts[stage];
+        if (!artifact) {
+          return { candidates: [], isHistory: false, historyLabel: "" };
+        }
+        const history = Array.isArray(artifact.history) ? artifact.history : [];
+        if (historyViewStage === stage && history.length) {
+          const index = Math.min(historyViewIndex ?? history.length - 1, history.length - 1);
+          const snapshot = history[index] || {};
+          return {
+            candidates: snapshot.candidates || [],
+            isHistory: true,
+            historyLabel: snapshot.reason || "history",
+          };
+        }
+        return { candidates: artifact.candidates || [], isHistory: false, historyLabel: "" };
       }
 
       function updateLabels() {
@@ -1028,7 +1088,10 @@
 
       function renderCandidates() {
         const artifact = artifacts[currentStage];
-        if (!artifact || !artifact.candidates || artifact.candidates.length === 0) {
+        const view = getCandidatesForStage(currentStage);
+        const candidates = view.candidates || [];
+        const isHistory = view.isHistory;
+        if (!artifact || !candidates || candidates.length === 0) {
           if (task && currentStage) {
             const skeletons = [];
             for (let i = 0; i < 3; i += 1) {
@@ -1041,47 +1104,52 @@
                 </div>`
               );
             }
-            candidateList.innerHTML = `
-              <div class="subtle">生成中...</div>
-              ${skeletons.join("")}
-            `;
-          } else {
-            candidateList.innerHTML = `<div class="subtle">No candidates yet.</div>`;
+            candidateList.innerHTML = skeletons.join("");
+            return;
           }
+          candidateList.innerHTML = `<div class="subtle">No candidates yet.</div>`;
           return;
         }
+
         candidateList.innerHTML = "";
-        artifact.candidates.forEach((cand) => {
+        if (isHistory) {
+          const note = document.createElement("div");
+          note.className = "subtle";
+          note.textContent = "??????????????/???";
+          candidateList.appendChild(note);
+        }
+        candidates.forEach((cand) => {
           const card = document.createElement("div");
           card.className = "candidate-card";
           if (cand.id === selectedCandidateId || cand.status === "selected") {
             card.classList.add("selected");
           }
-          const meta = document.createElement("div");
-          meta.className = "meta";
-          meta.style.display = "none";
-          meta.textContent = `status: ${cand.status} · alignment: ${cand.alignment_score}`;
-          const title = document.createElement("div");
-          title.className = "candidate-content markdown";
-          title.innerHTML = renderMarkdown(candidateContentToMarkdown(cand));
+
+          const content = document.createElement("div");
+          content.className = "candidate-content";
+          const markdown = renderCandidateMarkdown(cand.content || {});
+          content.innerHTML = renderMarkdown(markdown);
+          card.appendChild(content);
+
           const actions = document.createElement("div");
           actions.className = "candidate-actions";
-          const selectBtn = document.createElement("button");
-          selectBtn.textContent = `Select ${cand.id || ""}`.trim();
-          selectBtn.disabled = isBusy;
-          selectBtn.onclick = async (evt) => {
-            evt.stopPropagation();
-            selectedCandidateId = cand.id;
-            startThinking(currentStage);
-            setBusy(true);
-            try {
-              await submitAction("select_candidate", { stage: currentStage, candidate_id: cand.id });
-            } finally {
-              setBusy(false);
-            }
-          };
-          actions.appendChild(selectBtn);
-          card.appendChild(title);
+          if (!isHistory) {
+            const selectBtn = document.createElement("button");
+            selectBtn.textContent = `Select ${cand.id || ""}`.trim();
+            selectBtn.disabled = isBusy;
+            selectBtn.onclick = async (evt) => {
+              evt.preventDefault();
+              selectedCandidateId = cand.id;
+              renderCandidates();
+              startThinking(currentStage);
+              try {
+                await submitAction("select_candidate", { stage: currentStage, candidate_id: cand.id });
+              } finally {
+                setBusy(false);
+              }
+            };
+            actions.appendChild(selectBtn);
+          }
           card.appendChild(actions);
           candidateList.appendChild(card);
         });
@@ -1231,9 +1299,13 @@
           const payload = JSON.parse(evt.data);
           const data = payload.data || payload;
           if (data.stage) {
+            const prev = artifacts[data.stage] || {};
             artifacts[data.stage] = {
+              ...prev,
               stage_type: data.stage,
               candidates: data.candidates || [],
+              generation_context: data.generation_context || prev.generation_context,
+              history: prev.history || [],
             };
             currentStage = data.stage;
             updateLabels();
@@ -1309,6 +1381,27 @@
         return null;
       }
 
+      function detectStageOverride(text) {
+        const trimmed = text.trim();
+        if (!trimmed) return null;
+        const hasEditIntent = /(修改|改写|调整|重写|优化|更新)/.test(trimmed);
+        if (!hasEditIntent) return null;
+        const stageMap = [
+          { key: "scenario", patterns: [/场景/, /情境/] },
+          { key: "driving_question", patterns: [/驱动问题/] },
+          { key: "question_chain", patterns: [/问题链/] },
+          { key: "activity", patterns: [/活动/] },
+          { key: "experiment", patterns: [/实验/] },
+          { key: "tool_seed", patterns: [/工具/, /tool/i] },
+        ];
+        for (const entry of stageMap) {
+          if (entry.patterns.some((re) => re.test(trimmed))) {
+            return entry.key;
+          }
+        }
+        return null;
+      }
+
       function hasUnresolvedConflict() {
         if (!task || !currentStage || !task.conflicts) return false;
         const conflicts = task.conflicts[currentStage] || [];
@@ -1339,6 +1432,18 @@
           } else {
             await submitAction(command.action, { stage: currentStage });
           }
+          return;
+        }
+
+        const stageOverride = detectStageOverride(text);
+        if (stageOverride) {
+          await submitAction("provide_feedback", { stage: stageOverride, feedback: text });
+          return;
+        }
+
+        const isCompleted = task && task.status === "completed";
+        if (isCompleted) {
+          await sendChatMessage(text);
           return;
         }
 
